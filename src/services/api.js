@@ -1,4 +1,4 @@
-const BASE_URL = 'https://script.google.com/macros/s/AKfycbyglb8DxmUJ8Zbimw1pQszwo96rlldmWY-r7TP1t94R4Uqc_cOUtSDWN1NnIb9xQin5iQ/exec';
+const BASE_URL = 'https://script.google.com/macros/s/AKfycbzFT-tpdWk-1tZ-65pTUupPvZ6MAjDuDeAYVuuY2rqhYQPCZmeTBkAWXOF8HBDvcTjvrA/exec';
 
 export const apiCall = async (payload) => {
   try {
