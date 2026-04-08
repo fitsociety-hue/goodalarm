@@ -18,6 +18,9 @@ export const apiCall = async (payload) => {
     return data;
   } catch (error) {
     console.error('API Call Error:', error);
+    if (error.message === 'Failed to fetch') {
+      return { success: false, message: '서버 연결 실패(CORS 오류). Google Apps Script 배포 설정(모든 사용자 접근)과 URL을 확인해주세요.' };
+    }
     return { success: false, message: '서버와 통신하는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' };
   }
 };
