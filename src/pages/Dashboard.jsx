@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfigApi, updateConfigApi, getLogsApi } from '../services/api';
-import { LogOut, Save, RefreshCw, Bell, Settings, Activity } from 'lucide-react';
+import { getConfigApi, addConfigApi, updateConfigApi, deleteConfigApi, getLogsApi } from '../services/api';
+import { LogOut, Save, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, X } from 'lucide-react';
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
-  const [config, setConfig] = useState({ sheetUrl: '', chatWebhook: '', tracking: false });
+  const [configs, setConfigs] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentConfig, setCurrentConfig] = useState({
+    configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: ''
+  });
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -28,11 +34,7 @@ export default function Dashboard() {
     try {
       const configRes = await getConfigApi(userId);
       if (configRes && configRes.success) {
-        setConfig({
-          sheetUrl: configRes.sheetUrl || '',
-          chatWebhook: configRes.chatWebhook || '',
-          tracking: configRes.tracking || false
-        });
+        setConfigs(configRes.configs || []);
       }
       
       const logsRes = await getLogsApi(userId);
@@ -53,16 +55,38 @@ export default function Dashboard() {
 
   const handleConfigChange = (e) => {
     const { name, value } = e.target;
-    setConfig(prev => ({ ...prev, [name]: value }));
+    setCurrentConfig(prev => ({ ...prev, [name]: value }));
+  };
+
+  const openAddModal = () => {
+    setCurrentConfig({ configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '' });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (config) => {
+    setCurrentConfig({ ...config });
+    setIsModalOpen(true);
   };
 
   const saveConfig = async () => {
     if (!user) return;
+    if (!currentConfig.name || !currentConfig.sheetUrl || !currentConfig.chatWebhook) {
+      showMessage('error', '알람 이름, 스프레드시트 URL, 웹훅 URL을 모두 입력해주세요.');
+      return;
+    }
+
     setSaving(true);
     try {
-      const res = await updateConfigApi(user.userId, config.sheetUrl, config.chatWebhook);
+      let res;
+      if (currentConfig.configId) {
+        res = await updateConfigApi(user.userId, currentConfig.configId, currentConfig);
+      } else {
+        res = await addConfigApi(user.userId, currentConfig);
+      }
+
       if (res && res.success) {
         showMessage('success', '설정이 저장되었습니다.');
+        setIsModalOpen(false);
         loadData(user.userId);
       } else {
         showMessage('error', res.message || '저장 실패');
@@ -74,6 +98,24 @@ export default function Dashboard() {
     }
   };
 
+  const deleteConfig = async (configId) => {
+    if (!window.confirm('이 알람 설정을 정말 삭제하시겠습니까?')) return;
+    setLoading(true);
+    try {
+      const res = await deleteConfigApi(user.userId, configId);
+      if (res && res.success) {
+        showMessage('success', '삭제되었습니다.');
+        loadData(user.userId);
+      } else {
+        showMessage('error', res.message || '삭제 실패');
+      }
+    } catch (err) {
+      showMessage('error', '서버 통신 오류');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('goodalarm_user');
     navigate('/');
@@ -82,7 +124,7 @@ export default function Dashboard() {
   if (!user) return null;
 
   return (
-    <div className="container animate-fade-in">
+    <div className="container animate-fade-in" style={{ padding: '2rem' }}>
       <header className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', padding: '1.5rem 2rem' }}>
         <div>
           <h1 style={{ fontSize: '1.5rem', margin: 0, color: 'var(--primary)' }}>Good Alarm 통합관리</h1>
@@ -105,49 +147,53 @@ export default function Dashboard() {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '2rem' }}>
-        <section className="glass-panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            <Settings color="var(--primary)" />
-            <h2 style={{ margin: 0 }}>알람 설정</h2>
-          </div>
-
-          <div className="input-group">
-            <label htmlFor="sheetUrl">모니터링할 구글 스프레드시트 URL</label>
-            <input 
-              type="text" 
-              id="sheetUrl" 
-              name="sheetUrl" 
-              className="input-field" 
-              placeholder="https://docs.google.com/spreadsheets/d/..." 
-              value={config.sheetUrl} 
-              onChange={handleConfigChange} 
-            />
-            <small style={{ color: 'var(--text-muted)' }}>응답이 기록되는 시트의 전체 주소를 입력하세요.</small>
-          </div>
-
-          <div className="input-group">
-            <label htmlFor="chatWebhook">구글 챗 웹훅(Webhook) URL</label>
-            <input 
-              type="text" 
-              id="chatWebhook" 
-              name="chatWebhook" 
-              className="input-field" 
-              placeholder="https://chat.googleapis.com/v1/spaces/..." 
-              value={config.chatWebhook} 
-              onChange={handleConfigChange} 
-            />
-            <small style={{ color: 'var(--text-muted)' }}>스페이스 설정에서 생성한 웹훅 주소를 입력하세요.</small>
-          </div>
-
-          <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <section className="glass-panel" style={{ display: 'flex', flexDirection: 'column', maxHeight: '600px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span className={`badge ${config.tracking ? 'badge-active' : 'badge-inactive'}`}>
-                {config.tracking ? '모니터링 활성화됨' : '설정 미완료'}
-              </span>
+              <Settings color="var(--primary)" />
+              <h2 style={{ margin: 0 }}>알람 설정 목록</h2>
             </div>
-            <button onClick={saveConfig} className="btn" disabled={saving}>
-              {saving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} 저장하기
+            <button onClick={openAddModal} className="btn" style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <Plus size={16} /> 추가하기
             </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
+            {configs.length === 0 ? (
+              <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-muted)' }}>
+                <p>등록된 알람 설정이 없습니다.<br/>새로운 알람을 추가해보세요!</p>
+              </div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {configs.map((conf) => (
+                  <li key={conf.configId} style={{ 
+                    padding: '1.25rem', 
+                    background: 'rgba(255,255,255,0.7)', 
+                    border: '1px solid var(--surface-border)',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <div>
+                      <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-main)', fontSize: '1.1rem' }}>{conf.name}</h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        <Calendar size={14} /> 
+                        <span>기간: {conf.startDate && conf.endDate ? `${conf.startDate} ~ ${conf.endDate}` : conf.startDate ? `${conf.startDate} 부터` : conf.endDate ? `${conf.endDate} 까지` : '상시 운영'}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => openEditModal(conf)} className="btn btn-secondary" style={{ padding: '0.5rem' }} title="수정">
+                        <Edit2 size={16} color="var(--primary)" />
+                      </button>
+                      <button onClick={() => deleteConfig(conf.configId)} className="btn btn-secondary" style={{ padding: '0.5rem' }} title="삭제">
+                        <Trash2 size={16} color="#B91C1C" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
 
@@ -168,14 +214,14 @@ export default function Dashboard() {
             ) : logs.length === 0 ? (
               <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-muted)' }}>
                 <Bell size={48} style={{ margin: '0 auto 1rem', opacity: 0.2 }} />
-                <p>아직 발송된 알람 기록이 없습니다.<br/>설정을 완료하고 첫 번째 알람을 기다려보세요!</p>
+                <p>아직 발송된 알람 기록이 없습니다.</p>
               </div>
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {logs.map((log, idx) => (
                   <li key={idx} style={{ 
                     padding: '1rem', 
-                    background: 'rgba(255,255,255,0.5)', 
+                    background: 'rgba(255,255,255,0.7)', 
                     border: '1px solid var(--surface-border)',
                     borderRadius: '8px'
                   }}>
@@ -192,6 +238,55 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
+
+      {isModalOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '500px', maxWidth: '90%', padding: '2rem', position: 'relative' }}>
+            <button onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', cursor: 'pointer' }}>
+              <X size={24} color="var(--text-muted)" />
+            </button>
+            <h2 style={{ marginTop: 0, marginBottom: '1.5rem', color: 'var(--primary)' }}>
+              {currentConfig.configId ? '알람 설정 수정' : '새 알람 설정 추가'}
+            </h2>
+            
+            <div className="input-group">
+              <label htmlFor="name">알람 시스템 이름 (구분용)</label>
+              <input type="text" id="name" name="name" className="input-field" placeholder="예: 2026 복지관 만족도 조사" value={currentConfig.name} onChange={handleConfigChange} required />
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="sheetUrl">모니터링할 구글 스프레드시트 URL</label>
+              <input type="text" id="sheetUrl" name="sheetUrl" className="input-field" placeholder="https://docs.google.com/spreadsheets/d/..." value={currentConfig.sheetUrl} onChange={handleConfigChange} required />
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="chatWebhook">구글 챗 웹훅(Webhook) URL</label>
+              <input type="text" id="chatWebhook" name="chatWebhook" className="input-field" placeholder="https://chat.googleapis.com/v1/spaces/..." value={currentConfig.chatWebhook} onChange={handleConfigChange} required />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="input-group">
+                <label htmlFor="startDate">시작일 (선택)</label>
+                <input type="date" id="startDate" name="startDate" className="input-field" value={currentConfig.startDate} onChange={handleConfigChange} />
+              </div>
+              <div className="input-group">
+                <label htmlFor="endDate">종료일 (선택)</label>
+                <input type="date" id="endDate" name="endDate" className="input-field" value={currentConfig.endDate} onChange={handleConfigChange} />
+              </div>
+            </div>
+            <small style={{ display: 'block', marginBottom: '1.5rem', color: 'var(--text-muted)' }}>시작일과 종료일을 지정하면 해당 기간 내에 들어오는 응답만 알람을 발송합니다.</small>
+
+            <button onClick={saveConfig} className="btn" style={{ width: '100%' }} disabled={saving}>
+              {saving ? <RefreshCw className="animate-spin" size={20} style={{ margin: '0 auto' }} /> : <><Save size={20} /> 저장하기</>}
+            </button>
+          </div>
+        </div>
+      )}
       
       <style>{`
         .animate-spin {

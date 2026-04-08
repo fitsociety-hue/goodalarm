@@ -2,16 +2,15 @@ const SPREADSHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 
 function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ['Users', 'Config', 'Logs'].forEach(name => {
+  ['Users', 'ConfigsV2', 'Logs'].forEach(name => {
     if (!ss.getSheetByName(name)) {
       const sheet = ss.insertSheet(name);
       if (name === 'Users') sheet.appendRow(['userId', 'name', 'team', 'password']);
-      if (name === 'Config') sheet.appendRow(['userId', 'sheetUrl', 'chatWebhook', 'lastCheckedRow']);
+      if (name === 'ConfigsV2') sheet.appendRow(['configId', 'userId', 'name', 'sheetUrl', 'chatWebhook', 'lastCheckedRow', 'startDate', 'endDate']);
       if (name === 'Logs') sheet.appendRow(['timestamp', 'userId', 'message']);
     }
   });
 
-  // Create 10-min trigger
   const triggers = ScriptApp.getProjectTriggers();
   const exists = triggers.some(t => t.getHandlerFunction() === 'checkAndSendAlarms');
   if (!exists) {
@@ -24,11 +23,16 @@ function setup() {
 
 function doPost(e) {
   try {
-    const data = JSON.parse(e.postData.contents);
+    let data;
+    if (e && e.postData && e.postData.contents) {
+      data = JSON.parse(e.postData.contents);
+    } else {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, message: 'No payload' })).setMimeType(ContentService.MimeType.JSON);
+    }
     const action = data.action;
     let result = {};
 
-    setup(); // Ensure setup
+    setup(); 
 
     if (action === 'register') {
       result = handleRegister(data);
@@ -36,8 +40,12 @@ function doPost(e) {
       result = handleLogin(data);
     } else if (action === 'getConfig') {
       result = handleGetConfig(data);
+    } else if (action === 'addConfig') {
+      result = handleAddConfig(data);
     } else if (action === 'updateConfig') {
       result = handleUpdateConfig(data);
+    } else if (action === 'deleteConfig') {
+      result = handleDeleteConfig(data);
     } else if (action === 'getLogs') {
       result = handleGetLogs(data);
     }
@@ -80,48 +88,89 @@ function handleLogin({ name, team, password }) {
 
 function handleGetConfig({ userId }) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Config');
+  const sheet = ss.getSheetByName('ConfigsV2');
+  if (!sheet) return { success: true, configs: [] };
   const data = sheet.getDataRange().getValues();
+  const configs = [];
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
-      return { success: true, sheetUrl: data[i][1], chatWebhook: data[i][2], tracking: data[i][1] && data[i][2] };
+    if (data[i][1] === userId) {
+      configs.push({
+        configId: data[i][0],
+        name: data[i][2],
+        sheetUrl: data[i][3],
+        chatWebhook: data[i][4],
+        startDate: data[i][6] || '',
+        endDate: data[i][7] || ''
+      });
     }
   }
-  return { success: true, sheetUrl: '', chatWebhook: '', tracking: false };
+  return { success: true, configs };
 }
 
-function handleUpdateConfig({ userId, sheetUrl, chatWebhook }) {
+function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDate }) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Config');
-  const data = sheet.getDataRange().getValues();
+  const sheet = ss.getSheetByName('ConfigsV2');
   
-  let found = false;
-  // Test if sheet url is accessible logic
   let lastCheckedRow = 0;
   if(sheetUrl) {
     try {
       const targetSs = SpreadsheetApp.openByUrl(sheetUrl);
       lastCheckedRow = targetSs.getSheets()[0].getLastRow();
     } catch(e) {
-      return { success: false, message: '해당 스프레드시트에 접근할 수 없거나 URL이 잘못되었습니다. 앱스스크립트 계정이 시트에 대한 접근 권한이 있어야 합니다.' };
+      return { success: false, message: '해당 스프레드시트에 접근할 수 없거나 URL이 잘못되었습니다.' };
     }
   }
 
+  const configId = Utilities.getUuid();
+  sheet.appendRow([configId, userId, name, sheetUrl, chatWebhook, lastCheckedRow, startDate, endDate]);
+  return { success: true, message: '설정이 추가되었습니다.' };
+}
+
+function handleUpdateConfig({ userId, configId, name, sheetUrl, chatWebhook, startDate, endDate }) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ConfigsV2');
+  const data = sheet.getDataRange().getValues();
+  
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
-      sheet.getRange(i + 1, 2).setValue(sheetUrl);
-      sheet.getRange(i + 1, 3).setValue(chatWebhook);
-      sheet.getRange(i + 1, 4).setValue(lastCheckedRow);
-      found = true;
-      break;
+    if (data[i][0] === configId && data[i][1] === userId) {
+      
+      // Update check row if URL changed. Minimal approach: just keep old or recalculate safely.
+      let lastCheckedRow = data[i][5];
+      if (data[i][3] !== sheetUrl) {
+        try {
+          const targetSs = SpreadsheetApp.openByUrl(sheetUrl);
+          lastCheckedRow = targetSs.getSheets()[0].getLastRow();
+        } catch(e) {
+          return { success: false, message: '새로운 시트 URL에 접근할 수 없습니다.' };
+        }
+      }
+
+      sheet.getRange(i + 1, 3).setValue(name);
+      sheet.getRange(i + 1, 4).setValue(sheetUrl);
+      sheet.getRange(i + 1, 5).setValue(chatWebhook);
+      sheet.getRange(i + 1, 6).setValue(lastCheckedRow);
+      sheet.getRange(i + 1, 7).setValue(startDate || '');
+      sheet.getRange(i + 1, 8).setValue(endDate || '');
+      
+      return { success: true, message: '저장되었습니다.' };
     }
   }
+  return { success: false, message: '설정을 찾을 수 없습니다.' };
+}
 
-  if (!found) {
-    sheet.appendRow([userId, sheetUrl, chatWebhook, lastCheckedRow]);
+function handleDeleteConfig({ userId, configId }) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ConfigsV2');
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === configId && data[i][1] === userId) {
+      sheet.deleteRow(i + 1);
+      return { success: true, message: '삭제되었습니다.' };
+    }
   }
-  return { success: true, message: '저장되었습니다.' };
+  return { success: false, message: '설정을 찾을 수 없거나 권한이 없습니다.' };
 }
 
 function handleGetLogs({ userId }) {
@@ -144,23 +193,34 @@ function handleGetLogs({ userId }) {
 
 function checkAndSendAlarms() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName('Config');
+  const configSheet = ss.getSheetByName('ConfigsV2');
   if (!configSheet) return;
   const configData = configSheet.getDataRange().getValues();
   const logsSheet = ss.getSheetByName('Logs');
+  
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
 
   for (let i = 1; i < configData.length; i++) {
-    const userId = configData[i][0];
-    const sheetUrl = configData[i][1];
-    const chatWebhook = configData[i][2];
-    let lastCheckedRow = parseInt(configData[i][3]) || 0;
+    const configId = configData[i][0];
+    const userId = configData[i][1];
+    const configName = configData[i][2];
+    const sheetUrl = configData[i][3];
+    const chatWebhook = configData[i][4];
+    let lastCheckedRow = parseInt(configData[i][5]) || 0;
+    const startDate = configData[i][6];
+    const endDate = configData[i][7];
 
     if (!sheetUrl || !chatWebhook) continue;
+    
+    // Check date boundaries
+    if (startDate && todayStr < startDate) continue;
+    if (endDate && todayStr > endDate) continue;
 
     try {
       const targetSs = SpreadsheetApp.openByUrl(sheetUrl);
       const dataSheet = targetSs.getSheets()[0];
       const targetData = dataSheet.getDataRange().getValues();
+      if (targetData.length === 0) continue;
       const headers = targetData[0];
       const totalRows = targetData.length;
 
@@ -168,8 +228,7 @@ function checkAndSendAlarms() {
         let newEntriesCount = 0;
         for (let r = Math.max(lastCheckedRow, 1); r < totalRows; r++) {
           const rowData = targetData[r];
-          // Make a generic message using headers
-          let msgLines = ["*[새로운 신청자 알림]*", ""];
+          let msgLines = [`*[${configName || '새 알림'}]* 새로운 응답이 등록되었습니다.`, ""];
           for (let c = 0; c < headers.length; c++) {
             if(headers[c]) {
               msgLines.push(headers[c] + ": " + rowData[c]);
@@ -180,17 +239,16 @@ function checkAndSendAlarms() {
           sendToChatWebhook(chatWebhook, messageText);
           
           if(logsSheet) {
-             logsSheet.appendRow([new Date().toISOString(), userId, `새 알림 발송: \n${messageText}`]);
+             logsSheet.appendRow([new Date().toISOString(), userId, `[${configName}] 발송: \n${messageText}`]);
           }
           newEntriesCount++;
         }
         
-        // update last checked row
-        configSheet.getRange(i + 1, 4).setValue(totalRows);
+        configSheet.getRange(i + 1, 6).setValue(totalRows);
       }
     } catch (e) {
       if(logsSheet) {
-        logsSheet.appendRow([new Date().toISOString(), userId, `오류 발생: ${e.message}`]);
+        logsSheet.appendRow([new Date().toISOString(), userId, `[${configName}] 오류 발생: ${e.message}`]);
       }
     }
   }
@@ -199,19 +257,14 @@ function checkAndSendAlarms() {
 function sendToChatWebhook(url, text) {
   const options = {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    payload: JSON.stringify({
-      text: text
-    }),
+    headers: { "Content-Type": "application/json" },
+    payload: JSON.stringify({ text: text }),
     muteHttpExceptions: true
   };
   UrlFetchApp.fetch(url, options);
 }
 
-// Handling GET for simple testing if needed
 function doGet(e) {
   setup();
-  return ContentService.createTextOutput("Good Alarm Backend Active.");
+  return ContentService.createTextOutput("Good Alarm Backend V2 Active.");
 }

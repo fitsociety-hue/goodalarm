@@ -37,8 +37,16 @@ export const getConfigApi = async (userId) => {
   return await apiCall({ action: 'getConfig', userId });
 };
 
-export const updateConfigApi = async (userId, sheetUrl, chatWebhook) => {
-  return await apiCall({ action: 'updateConfig', userId, sheetUrl, chatWebhook });
+export const addConfigApi = async (userId, configData) => {
+  return await apiCall({ action: 'addConfig', userId, ...configData });
+};
+
+export const updateConfigApi = async (userId, configId, configData) => {
+  return await apiCall({ action: 'updateConfig', userId, configId, ...configData });
+};
+
+export const deleteConfigApi = async (userId, configId) => {
+  return await apiCall({ action: 'deleteConfig', userId, configId });
 };
 
 export const getLogsApi = async (userId) => {
