@@ -137,10 +137,11 @@ export default function Dashboard() {
 
       {message.text && (
         <div style={{ 
-          padding: '1rem', borderRadius: '8px', marginBottom: '2rem',
+          position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999,
+          padding: '1rem 2rem', borderRadius: '8px',
           background: message.type === 'error' ? '#FEE2E2' : '#D1FAE5',
           color: message.type === 'error' ? '#B91C1C' : '#065F46',
-          boxShadow: 'var(--shadow-sm)'
+          boxShadow: 'var(--shadow-md)', fontWeight: 'bold'
         }}>
           {message.text}
         </div>

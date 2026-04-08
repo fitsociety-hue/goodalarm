@@ -11,6 +11,17 @@ function setup() {
     }
   });
 
+  const oldSheet = ss.getSheetByName('Config');
+  const newSheet = ss.getSheetByName('ConfigsV2');
+  if (oldSheet && newSheet && newSheet.getLastRow() === 1) {
+    const oldData = oldSheet.getDataRange().getValues();
+    for (let i = 1; i < oldData.length; i++) {
+      if (oldData[i][0] && oldData[i][1]) {
+        newSheet.appendRow([Utilities.getUuid(), oldData[i][0], '기존 알람 설정', oldData[i][1], oldData[i][2], oldData[i][3], '', '']);
+      }
+    }
+  }
+
   const triggers = ScriptApp.getProjectTriggers();
   const exists = triggers.some(t => t.getHandlerFunction() === 'checkAndSendAlarms');
   if (!exists) {
