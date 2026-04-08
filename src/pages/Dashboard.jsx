@@ -89,7 +89,11 @@ export default function Dashboard() {
         setIsModalOpen(false);
         loadData(user.userId);
       } else {
-        showMessage('error', res.message || '저장 실패');
+        if (res && Object.keys(res).length === 0) {
+           showMessage('error', '🚫 구글 앱스 스크립트 배포가 실패했습니다! 옛날 코드가 실행되고 있습니다. Code.gs를 복사/붙여넣기 후 다시 "새 배포" 해주세요.');
+        } else {
+           showMessage('error', res.message || '저장 실패');
+        }
       }
     } catch (err) {
       showMessage('error', '서버 통신 오류');
