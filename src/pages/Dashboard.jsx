@@ -302,10 +302,12 @@ export default function Dashboard() {
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.5)', zIndex: 1000,
-          display: 'flex', justifyContent: 'center', alignItems: 'center',
-          backdropFilter: 'blur(4px)'
+          display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+          backdropFilter: 'blur(4px)',
+          overflowY: 'auto',
+          padding: '5vh 0'
         }}>
-          <div className="glass-panel animate-fade-in" style={{ width: '500px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', padding: '2rem', position: 'relative' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '500px', maxWidth: '90%', padding: '2rem', position: 'relative', margin: 'auto' }}>
             <button onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', cursor: 'pointer' }}>
               <X size={24} color="var(--text-muted)" />
             </button>
