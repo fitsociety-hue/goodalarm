@@ -6,7 +6,7 @@ function setup() {
     if (!ss.getSheetByName(name)) {
       const sheet = ss.insertSheet(name);
       if (name === 'Users') sheet.appendRow(['userId', 'name', 'team', 'password']);
-      if (name === 'ConfigsV2') sheet.appendRow(['configId', 'userId', 'name', 'sheetUrl', 'chatWebhook', 'lastCheckedRow', 'startDate', 'endDate']);
+      if (name === 'ConfigsV2') sheet.appendRow(['configId', 'userId', 'name', 'sheetUrl', 'chatWebhook', 'lastCheckedRow', 'startDate', 'endDate', 'weekdaysOnly']);
       if (name === 'Logs') sheet.appendRow(['timestamp', 'userId', 'message']);
     }
   });
@@ -17,7 +17,7 @@ function setup() {
     const oldData = oldSheet.getDataRange().getValues();
     for (let i = 1; i < oldData.length; i++) {
       if (oldData[i][0] && oldData[i][1]) {
-        newSheet.appendRow([Utilities.getUuid(), oldData[i][0], '기존 알람 설정', oldData[i][1], oldData[i][2], oldData[i][3], '', '']);
+        newSheet.appendRow([Utilities.getUuid(), oldData[i][0], '기존 알람 설정', oldData[i][1], oldData[i][2], oldData[i][3], '', '', false]);
       }
     }
   }
@@ -112,14 +112,15 @@ function handleGetConfig({ userId }) {
         sheetUrl: data[i][3],
         chatWebhook: data[i][4],
         startDate: data[i][6] || '',
-        endDate: data[i][7] || ''
+        endDate: data[i][7] || '',
+        weekdaysOnly: data[i][8] || false
       });
     }
   }
   return { success: true, configs };
 }
 
-function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDate }) {
+function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDate, weekdaysOnly }) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('ConfigsV2');
   
@@ -134,11 +135,11 @@ function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDa
   }
 
   const configId = Utilities.getUuid();
-  sheet.appendRow([configId, userId, name, sheetUrl, chatWebhook, lastCheckedRow, startDate, endDate]);
+  sheet.appendRow([configId, userId, name, sheetUrl, chatWebhook, lastCheckedRow, startDate, endDate, weekdaysOnly || false]);
   return { success: true, message: '설정이 추가되었습니다.' };
 }
 
-function handleUpdateConfig({ userId, configId, name, sheetUrl, chatWebhook, startDate, endDate }) {
+function handleUpdateConfig({ userId, configId, name, sheetUrl, chatWebhook, startDate, endDate, weekdaysOnly }) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('ConfigsV2');
   const data = sheet.getDataRange().getValues();
@@ -163,6 +164,7 @@ function handleUpdateConfig({ userId, configId, name, sheetUrl, chatWebhook, sta
       sheet.getRange(i + 1, 6).setValue(lastCheckedRow);
       sheet.getRange(i + 1, 7).setValue(startDate || '');
       sheet.getRange(i + 1, 8).setValue(endDate || '');
+      sheet.getRange(i + 1, 9).setValue(weekdaysOnly || false);
       
       return { success: true, message: '저장되었습니다.' };
     }
@@ -220,12 +222,25 @@ function checkAndSendAlarms() {
     let lastCheckedRow = parseInt(configData[i][5]) || 0;
     const startDate = configData[i][6];
     const endDate = configData[i][7];
+    const weekdaysOnly = configData[i][8] === true || String(configData[i][8]).toLowerCase() === 'true';
 
     if (!sheetUrl || !chatWebhook) continue;
     
     // Check date boundaries
     if (startDate && todayStr < startDate) continue;
     if (endDate && todayStr > endDate) continue;
+    
+    // Check weekdaysOnly
+    if (weekdaysOnly) {
+      const gmtTime = new Date();
+      const currentHourStr = Utilities.formatDate(gmtTime, Session.getScriptTimeZone(), "H");
+      const currentDayStr = Utilities.formatDate(gmtTime, Session.getScriptTimeZone(), "u"); // 1=Monday, 7=Sunday
+      const currentHour = parseInt(currentHourStr, 10);
+      const currentDay = parseInt(currentDayStr, 10);
+      
+      if (currentDay === 6 || currentDay === 7) continue; // Saturday or Sunday
+      if (currentDay === 1 && currentHour < 9) continue;  // Monday before 9 AM
+    }
 
     try {
       const targetSs = SpreadsheetApp.openByUrl(sheetUrl);

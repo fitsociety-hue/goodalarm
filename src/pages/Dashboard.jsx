@@ -13,7 +13,7 @@ export default function Dashboard() {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentConfig, setCurrentConfig] = useState({
-    configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: ''
+    configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '', weekdaysOnly: false
   });
 
   const navigate = useNavigate();
@@ -54,12 +54,12 @@ export default function Dashboard() {
   };
 
   const handleConfigChange = (e) => {
-    const { name, value } = e.target;
-    setCurrentConfig(prev => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setCurrentConfig(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const openAddModal = () => {
-    setCurrentConfig({ configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '' });
+    setCurrentConfig({ configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '', weekdaysOnly: false });
     setIsModalOpen(true);
   };
 
@@ -186,6 +186,10 @@ export default function Dashboard() {
                         <Calendar size={14} /> 
                         <span>기간: {conf.startDate && conf.endDate ? `${conf.startDate} ~ ${conf.endDate}` : conf.startDate ? `${conf.startDate} 부터` : conf.endDate ? `${conf.endDate} 까지` : '상시 운영'}</span>
                       </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem' }}>
+                        <Bell size={14} /> 
+                        <span>알람 범위: {conf.weekdaysOnly ? '평일 전용 (주말 건은 월요일 오전 9시 발송)' : '상시 (주야/휴일 무관)'}</span>
+                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button onClick={() => openEditModal(conf)} className="btn btn-secondary" style={{ padding: '0.5rem' }} title="수정">
@@ -284,7 +288,13 @@ export default function Dashboard() {
                 <input type="date" id="endDate" name="endDate" className="input-field" value={currentConfig.endDate} onChange={handleConfigChange} />
               </div>
             </div>
-            <small style={{ display: 'block', marginBottom: '1.5rem', color: 'var(--text-muted)' }}>시작일과 종료일을 지정하면 해당 기간 내에 들어오는 응답만 알람을 발송합니다.</small>
+            
+            <div className="input-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <input type="checkbox" id="weekdaysOnly" name="weekdaysOnly" checked={currentConfig.weekdaysOnly} onChange={handleConfigChange} style={{ width: '16px', height: '16px' }} />
+              <label htmlFor="weekdaysOnly" style={{ margin: 0, cursor: 'pointer' }}>평일(월~금)에만 알람 받기</label>
+            </div>
+            
+            <small style={{ display: 'block', marginBottom: '1.5rem', color: 'var(--text-muted)' }}>시작일/종료일 지정시 해당 기간에만 동작합니다.<br/>평일만 알람 받기 체크 시: 주말 신청 건은 월요일 오전 9시에 일괄 발송됩니다.</small>
 
             <button onClick={saveConfig} className="btn" style={{ width: '100%' }} disabled={saving}>
               {saving ? <RefreshCw className="animate-spin" size={20} style={{ margin: '0 auto' }} /> : <><Save size={20} /> 저장하기</>}
