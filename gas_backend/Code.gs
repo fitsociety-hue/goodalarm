@@ -199,20 +199,49 @@ function handleDeleteConfig({ userId, configId }) {
 
 function handleGetLogs({ userId }) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Logs');
-  if(!sheet) return { success: true, logs: [] };
-  const data = sheet.getDataRange().getValues();
+  const logsSheet = ss.getSheetByName('Logs');
+  if(!logsSheet) return { success: true, logs: [] };
+
+  const configSheet = ss.getSheetByName('ConfigsV2');
+  let activeConfigNames = [];
+  if (configSheet) {
+    const configData = configSheet.getDataRange().getValues();
+    for (let i = 1; i < configData.length; i++) {
+        if (configData[i][1] === userId && configData[i][2]) {
+            activeConfigNames.push(`[${configData[i][2]}]`); 
+        }
+    }
+  }
+
+  const data = logsSheet.getDataRange().getValues();
   const logs = [];
 
   for (let i = data.length - 1; i >= 1; i--) {
     if (data[i][1] === userId) {
-      logs.push({
-        timestamp: data[i][0],
-        message: data[i][2]
-      });
+      const msg = String(data[i][2]);
+      
+      let isOrphan = true;
+      for (const confName of activeConfigNames) {
+         if (msg.startsWith(confName)) {
+            isOrphan = false;
+            break;
+         }
+      }
+      
+      if (msg.startsWith('[새 알림]')) {
+         isOrphan = false; 
+      }
+
+      if (!isOrphan) {
+        logs.push({
+          timestamp: data[i][0],
+          message: msg
+        });
+      }
     }
+    if (logs.length >= 50) break;
   }
-  return { success: true, logs: logs.slice(0, 50) };
+  return { success: true, logs: logs };
 }
 
 function checkAndSendAlarms() {

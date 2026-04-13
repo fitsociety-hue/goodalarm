@@ -12,6 +12,8 @@ export default function Dashboard() {
   const [message, setMessage] = useState({ type: '', text: '' });
   
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [targetToDelete, setTargetToDelete] = useState(null);
   const [currentConfig, setCurrentConfig] = useState({
     configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '', weekdaysOnly: false
   });
@@ -102,11 +104,17 @@ export default function Dashboard() {
     }
   };
 
-  const deleteConfig = async (configId) => {
-    if (!window.confirm('이 알람 설정을 정말 삭제하시겠습니까?')) return;
+  const requestDeleteConfig = (config) => {
+    setTargetToDelete(config);
+    setIsDeleteModalOpen(true);
+  };
+
+  const deleteConfig = async () => {
+    if (!targetToDelete || !user) return;
+    setIsDeleteModalOpen(false);
     setLoading(true);
     try {
-      const res = await deleteConfigApi(user.userId, configId);
+      const res = await deleteConfigApi(user.userId, targetToDelete.configId);
       if (res && res.success) {
         showMessage('success', '삭제되었습니다.');
         loadData(user.userId);
@@ -195,7 +203,7 @@ export default function Dashboard() {
                       <button onClick={() => openEditModal(conf)} className="btn btn-secondary" style={{ padding: '0.5rem' }} title="수정">
                         <Edit2 size={16} color="var(--primary)" />
                       </button>
-                      <button onClick={() => deleteConfig(conf.configId)} className="btn btn-secondary" style={{ padding: '0.5rem' }} title="삭제">
+                      <button onClick={() => requestDeleteConfig(conf)} className="btn btn-secondary" style={{ padding: '0.5rem' }} title="삭제">
                         <Trash2 size={16} color="#B91C1C" />
                       </button>
                     </div>
@@ -299,6 +307,32 @@ export default function Dashboard() {
             <button onClick={saveConfig} className="btn" style={{ width: '100%' }} disabled={saving}>
               {saving ? <RefreshCw className="animate-spin" size={20} style={{ margin: '0 auto' }} /> : <><Save size={20} /> 저장하기</>}
             </button>
+          </div>
+        </div>
+      )}
+      
+      {isDeleteModalOpen && targetToDelete && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '400px', maxWidth: '90%', padding: '2rem', textAlign: 'center' }}>
+            <Trash2 size={48} color="#B91C1C" style={{ marginBottom: '1rem' }} />
+            <h2 style={{ marginTop: 0, marginBottom: '0.5rem', color: 'var(--text-main)' }}>정말 삭제하시겠습니까?</h2>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '2rem', lineHeight: '1.5' }}>
+              <strong>{targetToDelete.name}</strong> 알람 설정이 삭제됩니다.<br/>
+              이 작업은 되돌릴 수 없으며, 기존 알람 발송 기록도 화면에서 숨겨집니다.
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button onClick={() => setIsDeleteModalOpen(false)} className="btn btn-secondary" style={{ flex: 1 }}>
+                취소
+              </button>
+              <button onClick={deleteConfig} className="btn" style={{ flex: 1, background: '#B91C1C', color: 'white' }}>
+                삭제하기
+              </button>
+            </div>
           </div>
         </div>
       )}
