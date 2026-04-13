@@ -104,15 +104,26 @@ function handleGetConfig({ userId }) {
   const data = sheet.getDataRange().getValues();
   const configs = [];
 
+  const TZ = "Asia/Seoul";
   for (let i = 1; i < data.length; i++) {
     if (data[i][1] === userId) {
+      let stDateStr = data[i][6] || '';
+      let edDateStr = data[i][7] || '';
+      
+      if (stDateStr instanceof Date) {
+        stDateStr = Utilities.formatDate(stDateStr, TZ, "yyyy-MM-dd");
+      }
+      if (edDateStr instanceof Date) {
+        edDateStr = Utilities.formatDate(edDateStr, TZ, "yyyy-MM-dd");
+      }
+
       configs.push({
         configId: data[i][0],
         name: data[i][2],
         sheetUrl: data[i][3],
         chatWebhook: data[i][4],
-        startDate: data[i][6] || '',
-        endDate: data[i][7] || '',
+        startDate: stDateStr,
+        endDate: edDateStr,
         weekdaysOnly: data[i][8] || false
       });
     }
