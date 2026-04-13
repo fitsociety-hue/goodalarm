@@ -60,6 +60,21 @@ export default function Dashboard() {
     setCurrentConfig(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
+  const formatDateLabel = (dateStr) => {
+    if (!dateStr) return '';
+    // If it's already YYYY-MM-DD, just return it.
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      // Convert to KST (+9) to securely display the correct calendar day
+      const kstTime = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+      return kstTime.toISOString().split('T')[0];
+    } catch {
+      return dateStr;
+    }
+  };
+
   const openAddModal = () => {
     setCurrentConfig({ configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '', weekdaysOnly: false });
     setIsModalOpen(true);
@@ -192,7 +207,7 @@ export default function Dashboard() {
                       <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-main)', fontSize: '1.1rem' }}>{conf.name}</h3>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                         <Calendar size={14} /> 
-                        <span>기간: {conf.startDate && conf.endDate ? `${conf.startDate} ~ ${conf.endDate}` : conf.startDate ? `${conf.startDate} 부터` : conf.endDate ? `${conf.endDate} 까지` : '상시 운영'}</span>
+                        <span>기간: {conf.startDate && conf.endDate ? `${formatDateLabel(conf.startDate)} ~ ${formatDateLabel(conf.endDate)}` : conf.startDate ? `${formatDateLabel(conf.startDate)} 부터` : conf.endDate ? `${formatDateLabel(conf.endDate)} 까지` : '상시 운영'}</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem' }}>
                         <Bell size={14} /> 
