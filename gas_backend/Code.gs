@@ -211,7 +211,8 @@ function checkAndSendAlarms() {
   const configData = configSheet.getDataRange().getValues();
   const logsSheet = ss.getSheetByName('Logs');
   
-  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const TZ = "Asia/Seoul";
+  const todayStr = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
 
   for (let i = 1; i < configData.length; i++) {
     const configId = configData[i][0];
@@ -224,17 +225,26 @@ function checkAndSendAlarms() {
     const endDate = configData[i][7];
     const weekdaysOnly = configData[i][8] === true || String(configData[i][8]).toLowerCase() === 'true';
 
+    let startStr = "";
+    if (startDate) {
+      startStr = (startDate instanceof Date) ? Utilities.formatDate(startDate, TZ, "yyyy-MM-dd") : String(startDate).split("T")[0];
+    }
+    let endStr = "";
+    if (endDate) {
+      endStr = (endDate instanceof Date) ? Utilities.formatDate(endDate, TZ, "yyyy-MM-dd") : String(endDate).split("T")[0];
+    }
+
     if (!sheetUrl || !chatWebhook) continue;
     
     // Check date boundaries
-    if (startDate && todayStr < startDate) continue;
-    if (endDate && todayStr > endDate) continue;
+    if (startStr && todayStr < startStr) continue;
+    if (endStr && todayStr > endStr) continue;
     
     // Check weekdaysOnly
     if (weekdaysOnly) {
       const gmtTime = new Date();
-      const currentHourStr = Utilities.formatDate(gmtTime, Session.getScriptTimeZone(), "H");
-      const currentDayStr = Utilities.formatDate(gmtTime, Session.getScriptTimeZone(), "u"); // 1=Monday, 7=Sunday
+      const currentHourStr = Utilities.formatDate(gmtTime, TZ, "H");
+      const currentDayStr = Utilities.formatDate(gmtTime, TZ, "u"); // 1=Monday, 7=Sunday
       const currentHour = parseInt(currentHourStr, 10);
       const currentDay = parseInt(currentDayStr, 10);
       
