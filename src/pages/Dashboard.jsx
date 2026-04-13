@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetToDelete, setTargetToDelete] = useState(null);
+  const [configTab, setConfigTab] = useState('active'); // 'active' or 'expired'
   const [currentConfig, setCurrentConfig] = useState({
     configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '', weekdaysOnly: false
   });
@@ -176,7 +177,7 @@ export default function Dashboard() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '2rem' }}>
         <section className="glass-panel" style={{ display: 'flex', flexDirection: 'column', maxHeight: '600px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Settings color="var(--primary)" />
               <h2 style={{ margin: 0 }}>알람 설정 목록</h2>
@@ -186,23 +187,48 @@ export default function Dashboard() {
             </button>
           </div>
 
+          <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--surface-border)', marginBottom: '1rem', paddingBottom: '0.5rem' }}>
+            <button 
+              onClick={() => setConfigTab('active')} 
+              style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: configTab === 'active' ? 'bold' : 'normal', color: configTab === 'active' ? 'var(--primary)' : 'var(--text-muted)', borderBottom: configTab === 'active' ? '2px solid var(--primary)' : 'none' }}>
+              진행 중
+            </button>
+            <button 
+              onClick={() => setConfigTab('expired')} 
+              style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: configTab === 'expired' ? 'bold' : 'normal', color: configTab === 'expired' ? '#B91C1C' : 'var(--text-muted)', borderBottom: configTab === 'expired' ? '2px solid #B91C1C' : 'none' }}>
+              만료됨
+            </button>
+          </div>
+
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
-            {configs.length === 0 ? (
-              <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-muted)' }}>
-                <p>등록된 알람 설정이 없습니다.<br/>새로운 알람을 추가해보세요!</p>
-              </div>
-            ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {configs.map((conf) => (
-                  <li key={conf.configId} style={{ 
-                    padding: '1.25rem', 
-                    background: 'rgba(255,255,255,0.7)', 
-                    border: '1px solid var(--surface-border)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                  }}>
+            {(() => {
+              const todayStr = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+              const displayConfigs = configs.filter(conf => {
+                const isExpired = conf.endDate && conf.endDate < todayStr;
+                return configTab === 'active' ? !isExpired : isExpired;
+              });
+
+              if (displayConfigs.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-muted)' }}>
+                    <p>{configTab === 'active' ? '등록된 진행 중 알람이 없습니다.' : '만료된 알람 설정이 없습니다.'}</p>
+                  </div>
+                );
+              }
+
+              return (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {displayConfigs.map((conf) => (
+                    <li key={conf.configId} style={{ 
+                      padding: '1.25rem', 
+                      background: 'rgba(255,255,255,0.7)', 
+                      border: '1px solid var(--surface-border)',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      opacity: configTab === 'expired' ? 0.7 : 1
+                    }}>
                     <div>
                       <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-main)', fontSize: '1.1rem' }}>{conf.name}</h3>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
@@ -225,9 +251,10 @@ export default function Dashboard() {
                   </li>
                 ))}
               </ul>
-            )}
-          </div>
-        </section>
+            );
+          })()}
+        </div>
+      </section>
 
         <section className="glass-panel" style={{ display: 'flex', flexDirection: 'column', maxHeight: '600px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
