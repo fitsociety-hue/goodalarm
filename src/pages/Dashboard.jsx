@@ -1,23 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfigApi, addConfigApi, updateConfigApi, deleteConfigApi, getLogsApi } from '../services/api';
-import { LogOut, Save, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, X } from 'lucide-react';
+import { getConfigApi, deleteConfigApi, getLogsApi } from '../services/api';
+import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar } from 'lucide-react';
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [configs, setConfigs] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetToDelete, setTargetToDelete] = useState(null);
   const [configTab, setConfigTab] = useState('active'); // 'active' or 'expired'
-  const [currentConfig, setCurrentConfig] = useState({
-    configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '', weekdaysOnly: false
-  });
 
   const navigate = useNavigate();
 
@@ -56,11 +51,6 @@ export default function Dashboard() {
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
 
-  const handleConfigChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setCurrentConfig(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-  };
-
   const formatDateLabel = (dateStr) => {
     if (!dateStr) return '';
     // If it's already YYYY-MM-DD, just return it.
@@ -77,47 +67,11 @@ export default function Dashboard() {
   };
 
   const openAddModal = () => {
-    setCurrentConfig({ configId: '', name: '', sheetUrl: '', chatWebhook: '', startDate: '', endDate: '', weekdaysOnly: false });
-    setIsModalOpen(true);
+    navigate('/config');
   };
 
   const openEditModal = (config) => {
-    setCurrentConfig({ ...config });
-    setIsModalOpen(true);
-  };
-
-  const saveConfig = async () => {
-    if (!user) return;
-    if (!currentConfig.name || !currentConfig.sheetUrl || !currentConfig.chatWebhook) {
-      showMessage('error', '알람 이름, 스프레드시트 URL, 웹훅 URL을 모두 입력해주세요.');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      let res;
-      if (currentConfig.configId) {
-        res = await updateConfigApi(user.userId, currentConfig.configId, currentConfig);
-      } else {
-        res = await addConfigApi(user.userId, currentConfig);
-      }
-
-      if (res && res.success) {
-        showMessage('success', '설정이 저장되었습니다.');
-        setIsModalOpen(false);
-        loadData(user.userId);
-      } else {
-        if (res && Object.keys(res).length === 0) {
-           showMessage('error', '🚫 구글 앱스 스크립트 배포가 실패했습니다! 옛날 코드가 실행되고 있습니다. Code.gs를 복사/붙여넣기 후 다시 "새 배포" 해주세요.');
-        } else {
-           showMessage('error', res.message || '저장 실패');
-        }
-      }
-    } catch (err) {
-      showMessage('error', '서버 통신 오류');
-    } finally {
-      setSaving(false);
-    }
+    navigate('/config', { state: { config } });
   };
 
   const requestDeleteConfig = (config) => {
@@ -297,63 +251,6 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
-
-      {isModalOpen && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
-          display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
-          backdropFilter: 'blur(4px)',
-          overflowY: 'auto',
-          padding: '5vh 0'
-        }}>
-          <div className="glass-panel animate-fade-in" style={{ width: '500px', maxWidth: '90%', padding: '2rem', position: 'relative', margin: 'auto' }}>
-            <button onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', cursor: 'pointer' }}>
-              <X size={24} color="var(--text-muted)" />
-            </button>
-            <h2 style={{ marginTop: 0, marginBottom: '1.5rem', color: 'var(--primary)' }}>
-              {currentConfig.configId ? '알람 설정 수정' : '새 알람 설정 추가'}
-            </h2>
-            
-            <div className="input-group">
-              <label htmlFor="name">알람 시스템 이름 (구분용)</label>
-              <input type="text" id="name" name="name" className="input-field" placeholder="예: 2026 복지관 만족도 조사" value={currentConfig.name} onChange={handleConfigChange} required />
-            </div>
-
-            <div className="input-group">
-              <label htmlFor="sheetUrl">모니터링할 구글 스프레드시트 URL</label>
-              <input type="text" id="sheetUrl" name="sheetUrl" className="input-field" placeholder="https://docs.google.com/spreadsheets/d/..." value={currentConfig.sheetUrl} onChange={handleConfigChange} required />
-            </div>
-
-            <div className="input-group">
-              <label htmlFor="chatWebhook">구글 챗 웹훅(Webhook) URL</label>
-              <input type="text" id="chatWebhook" name="chatWebhook" className="input-field" placeholder="https://chat.googleapis.com/v1/spaces/..." value={currentConfig.chatWebhook} onChange={handleConfigChange} required />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div className="input-group">
-                <label htmlFor="startDate">시작일 (선택)</label>
-                <input type="date" id="startDate" name="startDate" className="input-field" value={currentConfig.startDate} onChange={handleConfigChange} />
-              </div>
-              <div className="input-group">
-                <label htmlFor="endDate">종료일 (선택)</label>
-                <input type="date" id="endDate" name="endDate" className="input-field" value={currentConfig.endDate} onChange={handleConfigChange} />
-              </div>
-            </div>
-            
-            <div className="input-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <input type="checkbox" id="weekdaysOnly" name="weekdaysOnly" checked={currentConfig.weekdaysOnly} onChange={handleConfigChange} style={{ width: '16px', height: '16px' }} />
-              <label htmlFor="weekdaysOnly" style={{ margin: 0, cursor: 'pointer' }}>평일(월~금)에만 알람 받기</label>
-            </div>
-            
-            <small style={{ display: 'block', marginBottom: '1.5rem', color: 'var(--text-muted)' }}>시작일/종료일 지정시 해당 기간에만 동작합니다.<br/>평일만 알람 받기 체크 시: 주말 신청 건은 월요일 오전 9시에 일괄 발송됩니다.</small>
-
-            <button onClick={saveConfig} className="btn" style={{ width: '100%' }} disabled={saving}>
-              {saving ? <RefreshCw className="animate-spin" size={20} style={{ margin: '0 auto' }} /> : <><Save size={20} /> 저장하기</>}
-            </button>
-          </div>
-        </div>
-      )}
       
       {isDeleteModalOpen && targetToDelete && (
         <div style={{
