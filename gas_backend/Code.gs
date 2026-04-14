@@ -312,10 +312,14 @@ function checkAndSendAlarms() {
           }
           const messageText = msgLines.join("\n");
           
-          sendToChatWebhook(chatWebhook, messageText);
+          const success = sendToChatWebhook(chatWebhook, messageText);
           
           if(logsSheet) {
-             logsSheet.appendRow([new Date().toISOString(), userId, `[${configName}] 발송: \n${messageText}`]);
+            if (success) {
+               logsSheet.appendRow([new Date().toISOString(), userId, `[${configName}] 발송: \n${messageText}`]);
+            } else {
+               logsSheet.appendRow([new Date().toISOString(), userId, `[${configName}] 발송 실패 (웹훅 연동 확인 필요): \n${messageText}`]);
+            }
           }
           newEntriesCount++;
         }
@@ -337,7 +341,13 @@ function sendToChatWebhook(url, text) {
     payload: JSON.stringify({ text: text }),
     muteHttpExceptions: true
   };
-  UrlFetchApp.fetch(url, options);
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const code = response.getResponseCode();
+    return code >= 200 && code < 300;
+  } catch (e) {
+    return false;
+  }
 }
 
 function doGet(e) {
