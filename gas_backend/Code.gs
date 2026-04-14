@@ -253,6 +253,12 @@ function checkAndSendAlarms() {
   
   const TZ = "Asia/Seoul";
   const todayStr = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
+  
+  // Seoul Time for accurate weekday checks
+  const seoulTimeStr = new Date().toLocaleString("en-US", {timeZone: "Asia/Seoul"});
+  const seoulDate = new Date(seoulTimeStr);
+  const currentDay = seoulDate.getDay(); // 0(Sun) ~ 6(Sat)
+  const currentHour = seoulDate.getHours(); // 0 ~ 23
 
   for (let i = 1; i < configData.length; i++) {
     const configId = configData[i][0];
@@ -274,25 +280,19 @@ function checkAndSendAlarms() {
       endStr = (endDate instanceof Date) ? Utilities.formatDate(endDate, TZ, "yyyy-MM-dd") : String(endDate).split("T")[0];
     }
 
-    if (!sheetUrl || !chatWebhook) continue;
-    
-    // Check date boundaries
-    if (startStr && todayStr < startStr) continue;
-    if (endStr && todayStr > endStr) continue;
-    
-    // Check weekdaysOnly
-    if (weekdaysOnly) {
-      const gmtTime = new Date();
-      const currentHourStr = Utilities.formatDate(gmtTime, TZ, "H");
-      const currentDayStr = Utilities.formatDate(gmtTime, TZ, "u"); // 1=Monday, 7=Sunday
-      const currentHour = parseInt(currentHourStr, 10);
-      const currentDay = parseInt(currentDayStr, 10);
-      
-      if (currentDay === 6 || currentDay === 7) continue; // Saturday or Sunday
-      if (currentDay === 1 && currentHour < 9) continue;  // Monday before 9 AM
-    }
-
     try {
+      if (!sheetUrl || !chatWebhook) continue;
+      
+      // Check date boundaries
+      if (startStr && todayStr < startStr) continue;
+      if (endStr && todayStr > endStr) continue;
+      
+      // Check weekdaysOnly
+      if (weekdaysOnly) {
+        if (currentDay === 0 || currentDay === 6) continue; // Sunday or Saturday
+        if (currentDay === 1 && currentHour < 9) continue;  // Monday before 9 AM
+      }
+
       const targetSs = SpreadsheetApp.openByUrl(sheetUrl);
       const dataSheet = targetSs.getSheets()[0];
       const targetData = dataSheet.getDataRange().getValues();
@@ -304,10 +304,17 @@ function checkAndSendAlarms() {
         let newEntriesCount = 0;
         for (let r = Math.max(lastCheckedRow, 1); r < totalRows; r++) {
           const rowData = targetData[r];
+          
+          // Check if row is completely empty
+          const isRowEmpty = rowData.slice(1).every(cell => String(cell).trim() === "");
+          if (isRowEmpty) continue;
+
           let msgLines = [`*[${configName || '새 알림'}]* 새로운 응답이 등록되었습니다.`, ""];
           for (let c = 0; c < headers.length; c++) {
             if(headers[c]) {
-              msgLines.push(headers[c] + ": " + rowData[c]);
+              // Convert to valid string and don't omit empty cells inside a mostly filled row
+              const val = (rowData[c] !== undefined && rowData[c] !== null) ? String(rowData[c]) : "";
+              msgLines.push(headers[c] + ": " + val);
             }
           }
           const messageText = msgLines.join("\n");
