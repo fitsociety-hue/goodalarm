@@ -349,7 +349,7 @@ function sendToChatWebhook(url, text) {
     muteHttpExceptions: true
   };
   try {
-    const response = UrlFetchApp.fetch(url, options);
+    const response = UrlFetchApp.fetch(url.trim(), options);
     const code = response.getResponseCode();
     return code >= 200 && code < 300;
   } catch (e) {
