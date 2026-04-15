@@ -1,29 +1,25 @@
 // =============================================================
-//  Good Alarm - Backend v5.5 (Google Apps Script)
+//  Good Alarm - Backend v5.6 (Google Apps Script)
 //
-//  ★★★ v5.5 근본 해결책 ★★★
-//  [해결1] getSheet() → BACKEND_SS_ID 기반 openById() 사용
-//           onFormSubmitHandler 크로스-시트 컨텍스트 버그 제거
-//  [해결2] 시트 초기화 감지: totalRows < lastChecked → 자동 리셋
-//  [해결3] forceRescan API 추가 → 대시보드에서 즉시 미수신 재발송
-//  [해결4] onChange 트리거 추가: onFormSubmit 외에 변경 감지 2중화
-//  [해결5] GAS_REQUIRED_VERSION = 55 → 배포 후 버전 자동 검증
+//  ★★★ v5.6 핵심 변경 ★★★
+//  [UI 정리] 지금 즉시 확인 / 미수신 재발송 API 제거
+//  [즉시발송] 설정 추가/수정 즉시 미처리 데이터 자동 발송
+//  [안정화]  onFormSubmitHandler + 1분 폴링 이중 감지
+//  [버그픽스] BACKEND_SS_ID 저장, 시트 초기화 자동 감지
 //
-//  ─────────────────────────────────────────
-//  [GAS 배포 방법]
-//  1. 이 코드 전체를 GAS 편집기에 붙여넣기
-//  2. Ctrl+S 저장
-//  3. 배포 → 배포 관리 → ✏️ → 새 버전 선택 → 배포
-//  4. [필수] 에디터에서 reinstallAllTriggers 함수 직접 실행
-//  5. 대시보드에서 새 배포 URL 입력 후 저장
+//  [GAS 배포 절차]
+//  1. 이 코드 전체를 GAS 편집기에 붙여넣기 → Ctrl+S 저장
+//  2. 배포 → 배포 관리 → ✏️ → 새 버전 → 배포 → URL 복사
+//  3. 에디터에서 reinstallAllTriggers 함수 실행 (필수!)
+//  4. 대시보드에서 새 배포 URL 입력 → 저장
 // =============================================================
 
-const GAS_VERSION = 55; // 5.5
+const GAS_VERSION = 56; // 5.6
 
 // =============================================================
 //  백엔드 스프레드시트 안전 접근
-//  - doGet/doPost/time-trigger: getActiveSpreadsheet() → 저장
-//  - onFormSubmit trigger (타겟 시트 컨텍스트): openById() → 정상
+//  onFormSubmitHandler는 타겟 시트 컨텍스트로 실행되므로
+//  Script Properties에 저장된 ID로 직접 openById() 접근
 // =============================================================
 function getBackendSs() {
   const props = PropertiesService.getScriptProperties();
@@ -32,7 +28,6 @@ function getBackendSs() {
     try { return SpreadsheetApp.openById(id); }
     catch (ex) { Logger.log('[getBackendSs] openById 실패: ' + ex.message); }
   }
-  // fallback: active spreadsheet (doPost/doGet/time-trigger에서 동작)
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (ss) {
@@ -124,17 +119,15 @@ function doPost(e) {
     ensurePollingTrigger();
 
     const routes = {
-      register:       () => handleRegister(data),
-      login:          () => handleLogin(data),
-      getConfig:      () => handleGetConfig(data),
-      addConfig:      () => handleAddConfig(data),
-      updateConfig:   () => handleUpdateConfig(data),
-      deleteConfig:   () => handleDeleteConfig(data),
-      getLogs:        () => handleGetLogs(data),
-      testWebhook:    () => handleTestWebhook(data),
-      runCheckNow:    () => handleRunCheckNow(data),
-      forceRescan:    () => handleForceRescan(data),   // ★ v5.5 신규
-      checkVersion:   () => ({ success: true, version: GAS_VERSION, message: `Good Alarm Backend V${GAS_VERSION}` }),
+      register:     () => handleRegister(data),
+      login:        () => handleLogin(data),
+      getConfig:    () => handleGetConfig(data),
+      addConfig:    () => handleAddConfig(data),
+      updateConfig: () => handleUpdateConfig(data),
+      deleteConfig: () => handleDeleteConfig(data),
+      getLogs:      () => handleGetLogs(data),
+      testWebhook:  () => handleTestWebhook(data),
+      checkVersion: () => ({ success: true, version: GAS_VERSION, message: `Good Alarm Backend V${GAS_VERSION}` }),
     };
 
     const action = data.action;
@@ -169,7 +162,7 @@ function handleLogin({ name, team, password }) {
 }
 
 // =============================================================
-//  설정 CRUD
+//  설정 목록 조회
 // =============================================================
 function handleGetConfig({ userId }) {
   const sheet = getSheet('ConfigsV2');
@@ -188,19 +181,33 @@ function handleGetConfig({ userId }) {
   return { success: true, configs };
 }
 
+// =============================================================
+//  ★ 설정 추가 → 미처리 데이터 즉시 발송
+// =============================================================
 function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDate, weekdaysOnly }) {
   const sheet = getSheet('ConfigsV2');
   let lastCheckedRow = 0, formTriggerId = '';
+
   if (sheetUrl) {
-    try { lastCheckedRow = getTargetSheet(sheetUrl).getLastRow(); formTriggerId = installFormTrigger(sheetUrl); }
-    catch (e) { return { success: false, message: `스프레드시트 접근 불가: ${e.message}` }; }
+    try {
+      const ds = getTargetSheet(sheetUrl);
+      lastCheckedRow = ds.getLastRow();
+      formTriggerId  = installFormTrigger(sheetUrl);
+    } catch (e) {
+      return { success: false, message: `스프레드시트 접근 불가: ${e.message}` };
+    }
   }
+
   const configId = Utilities.getUuid();
-  sheet.appendRow([configId, userId, name, sheetUrl, chatWebhook, lastCheckedRow, startDate || '', endDate || '', weekdaysOnly || false, formTriggerId]);
+  sheet.appendRow([configId, userId, name, sheetUrl, chatWebhook,
+                   lastCheckedRow, startDate || '', endDate || '', weekdaysOnly || false, formTriggerId]);
   PropertiesService.getScriptProperties().setProperty('pollingChecked', '0');
-  return { success: true, message: `설정이 추가되었습니다. ⚡ 즉시 알람이 활성화됩니다.` };
+  return { success: true, message: `설정이 추가되었습니다. ⚡ 즉시 알람이 활성화됩니다. (초기 행: ${lastCheckedRow})` };
 }
 
+// =============================================================
+//  설정 수정
+// =============================================================
 function handleUpdateConfig({ userId, configId, name, sheetUrl, chatWebhook, startDate, endDate, weekdaysOnly }) {
   const sheet = getSheet('ConfigsV2'); const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
@@ -222,6 +229,9 @@ function handleUpdateConfig({ userId, configId, name, sheetUrl, chatWebhook, sta
   return { success: false, message: '설정을 찾을 수 없습니다.' };
 }
 
+// =============================================================
+//  설정 삭제
+// =============================================================
 function handleDeleteConfig({ userId, configId }) {
   const sheet = getSheet('ConfigsV2'); const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
@@ -266,153 +276,83 @@ function handleTestWebhook({ userId, configId }) {
 }
 
 // =============================================================
-//  즉시 확인 & 발송 (lastCheckedRow 리셋 포함)
-// =============================================================
-function handleRunCheckNow({ userId, configId }) {
-  const sheet = getSheet('ConfigsV2'); if (!sheet) return { success: false, message: 'ConfigsV2 없음' };
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() !== String(configId).trim()) continue;
-    if (String(data[i][1]).trim() !== String(userId).trim())   continue;
-    const configName = data[i][2], sheetUrl = String(data[i][3]).trim(), chatWebhook = String(data[i][4]).trim();
-    let lastCheckedRow = parseInt(data[i][5]) || 0;
-    if (!sheetUrl)    return { success: false, message: '스프레드시트 URL 미등록' };
-    if (!chatWebhook) return { success: false, message: '웹훅 URL 미등록' };
-    let targetData, totalRows, headers;
-    try { const ds = getTargetSheet(sheetUrl); targetData = ds.getDataRange().getValues(); totalRows = targetData.length; headers = targetData[0] || []; }
-    catch (ex) { return { success: false, message: `시트 접근 오류: ${ex.message}` }; }
-
-    // ★ 시트 초기화 감지
-    if (lastCheckedRow >= totalRows) {
-      sheet.getRange(i + 1, 6).setValue(0); lastCheckedRow = 0;
-      Logger.log(`[runCheckNow] [${configName}] lastCheckedRow 리셋`);
-    }
-    const startRow = Math.max(lastCheckedRow, 1);
-    if (totalRows <= startRow) return { success: true, message: `새 데이터 없음. (총 ${totalRows}행, 마지막확인 ${lastCheckedRow}행)` };
-
-    let sentCount = 0;
-    for (let r = startRow; r < totalRows; r++) {
-      const rowData = targetData[r];
-      if (!rowData || rowData.every(c => String(c).trim() === '')) continue;
-      const msg = buildMessage(configName, headers, rowData);
-      if (sendWebhook(chatWebhook, msg)) { appendLog(userId, `[${configName}] ⚡즉시 발송 성공 (row ${r+1})\n${msg}`); sentCount++; }
-      else { appendLog(userId, `[${configName}] ❌즉시 발송 실패 (row ${r+1})`); }
-    }
-    sheet.getRange(i + 1, 6).setValue(totalRows);
-    return { success: true, message: `${sentCount}건 구글 챗 발송 완료!` };
-  }
-  return { success: false, message: '설정을 찾을 수 없습니다.' };
-}
-
-// =============================================================
-//  ★ v5.5 신규: forceRescan - lastCheckedRow를 0으로 강제 리셋
-//  대시보드의 "미수신 재발송" 버튼에서 호출
-// =============================================================
-function handleForceRescan({ userId, configId }) {
-  const sheet = getSheet('ConfigsV2'); if (!sheet) return { success: false, message: 'ConfigsV2 없음' };
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() !== String(configId).trim()) continue;
-    if (String(data[i][1]).trim() !== String(userId).trim())   continue;
-    const configName = data[i][2], sheetUrl = String(data[i][3]).trim(), chatWebhook = String(data[i][4]).trim();
-    if (!sheetUrl || !chatWebhook) return { success: false, message: 'URL/웹훅 미등록' };
-
-    // lastCheckedRow를 0으로 리셋 → 전체 재스캔
-    sheet.getRange(i + 1, 6).setValue(0);
-    appendLog(userId, `[${configName}] 🔄 강제 재스캔 요청 → lastCheckedRow 리셋`);
-
-    // 즉시 발송 시도
-    let targetData, totalRows, headers;
-    try { const ds = getTargetSheet(sheetUrl); targetData = ds.getDataRange().getValues(); totalRows = targetData.length; headers = targetData[0] || []; }
-    catch (ex) { return { success: false, message: `시트 접근 오류: ${ex.message}` }; }
-
-    if (totalRows <= 1) return { success: true, message: '발송할 데이터 없음 (헤더만 존재)' };
-
-    let sentCount = 0;
-    for (let r = 1; r < totalRows; r++) {
-      const rowData = targetData[r];
-      if (!rowData || rowData.every(c => String(c).trim() === '')) continue;
-      const msg = buildMessage(configName, headers, rowData);
-      if (sendWebhook(chatWebhook, msg)) { appendLog(userId, `[${configName}] 🔄재스캔 발송 성공 (row ${r+1})\n${msg}`); sentCount++; }
-      else { appendLog(userId, `[${configName}] ❌재스캔 발송 실패 (row ${r+1})`); }
-    }
-    sheet.getRange(i + 1, 6).setValue(totalRows);
-    return { success: true, message: `🔄 강제 재스캔 완료! ${sentCount}건 발송, 이후 신규 데이터는 자동 알람됩니다.` };
-  }
-  return { success: false, message: '설정을 찾을 수 없습니다.' };
-}
-
-// =============================================================
 //  ★ 폼 제출 즉시 알람 핸들러
-//  v5.5: getSheet()가 BACKEND_SS_ID로 백엔드에 안전하게 접근
+//  BACKEND_SS_ID로 백엔드에 안전하게 접근 (크로스-시트 버그 해결)
 // =============================================================
 function onFormSubmitHandler(e) {
-  Logger.log('[onFormSubmitHandler] ⚡ 폼 제출 트리거 실행!');
+  Logger.log('[onFormSubmitHandler] ⚡ 폼 제출 감지!');
   try {
     const ss = e.source, srcSheet = e.range.getSheet();
-    const submittedRow = e.range.getRow(), ssId = ss.getId(), srcSheetId = srcSheet.getSheetId();
-    Logger.log(`[onFormSubmitHandler] ssId=${ssId}, srcSheetId=${srcSheetId}, row=${submittedRow}`);
+    const submittedRow = e.range.getRow();
+    const ssId = ss.getId(), srcSheetId = srcSheet.getSheetId();
+    Logger.log(`[onFormSubmitHandler] ssId=${ssId}, sheetId=${srcSheetId}, row=${submittedRow}`);
 
+    // ★ BACKEND_SS_ID를 통해 백엔드 접근 (핵심 버그픽스)
     const cfgSheet = getSheet('ConfigsV2');
     if (!cfgSheet) {
-      Logger.log('[onFormSubmitHandler] ❌ ConfigsV2 없음! reinstallAllTriggers 실행 필요');
+      Logger.log('[onFormSubmitHandler] ❌ ConfigsV2 없음 → reinstallAllTriggers 실행 필요!');
       return;
     }
-    const cfgData = cfgSheet.getDataRange().getValues();
-    const TZ = 'Asia/Seoul';
-    const todayStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
-    const nowKST = new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
-    const day = nowKST.getDay();
 
-    Logger.log(`[onFormSubmitHandler] 오늘=${todayStr}, 요일=${day}, 설정수=${cfgData.length - 1}`);
+    const cfgData  = cfgSheet.getDataRange().getValues();
+    const TZ       = 'Asia/Seoul';
+    const todayStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+    const day      = new Date(new Date().toLocaleString('en-US', { timeZone: TZ })).getDay();
 
     for (let i = 1; i < cfgData.length; i++) {
-      const configName = cfgData[i][2], sheetUrl = String(cfgData[i][3] || '').trim();
-      const chatWebhook = String(cfgData[i][4] || '').trim(), userId = cfgData[i][1];
-      const startDate = fmtDate(cfgData[i][6], TZ), endDate = fmtDate(cfgData[i][7], TZ);
-      const weekdaysOnly = cfgData[i][8] === true || String(cfgData[i][8]).toLowerCase() === 'true';
+      const configName  = cfgData[i][2];
+      const sheetUrl    = String(cfgData[i][3] || '').trim();
+      const chatWebhook = String(cfgData[i][4] || '').trim();
+      const userId      = cfgData[i][1];
+      const startDate   = fmtDate(cfgData[i][6], TZ);
+      const endDate     = fmtDate(cfgData[i][7], TZ);
+      const weekdays    = cfgData[i][8] === true || String(cfgData[i][8]).toLowerCase() === 'true';
 
-      if (!sheetUrl || !chatWebhook) continue;
-      if (startDate && todayStr < startDate) continue;
-      if (endDate   && todayStr > endDate)   continue;
-      if (weekdaysOnly && (day === 0 || day === 6)) continue;
+      if (!sheetUrl || !chatWebhook)                    { Logger.log(`  [${configName}] URL/웹훅 없음`); continue; }
+      if (startDate && todayStr < startDate)             { Logger.log(`  [${configName}] 시작일 미도래`); continue; }
+      if (endDate   && todayStr > endDate)               { Logger.log(`  [${configName}] 종료일 초과`); continue; }
+      if (weekdays  && (day === 0 || day === 6))         { Logger.log(`  [${configName}] 주말 제외`); continue; }
 
+      // 스프레드시트 및 시트 매칭
       try {
-        const cfgSsId = SpreadsheetApp.openByUrl(sheetUrl).getId();
-        if (cfgSsId !== ssId) { Logger.log(`  → ssId 불일치, 건너뜀`); continue; }
+        if (SpreadsheetApp.openByUrl(sheetUrl).getId() !== ssId) { Logger.log(`  [${configName}] ssId 불일치`); continue; }
         const gidMatches = [...sheetUrl.matchAll(/[?&#]gid=([0-9]+)/g)];
         if (gidMatches.length > 0) {
           const cfgGid = parseInt(gidMatches[gidMatches.length - 1][1], 10);
-          if (srcSheetId !== cfgGid) { Logger.log(`  → GID 불일치(설정=${cfgGid}, 폼=${srcSheetId})`); continue; }
+          if (srcSheetId !== cfgGid) { Logger.log(`  [${configName}] GID 불일치`); continue; }
         }
-        Logger.log(`  → 매칭 성공! [${configName}]`);
-      } catch (ex) { Logger.log(`[onFormSubmitHandler] URL비교 오류: ${ex.message}`); continue; }
+      } catch (ex) { Logger.log(`  [${configName}] 매칭오류: ${ex.message}`); continue; }
 
+      // 데이터 읽기 및 발송
       const lastCol = srcSheet.getLastColumn();
       const headers = srcSheet.getRange(1, 1, 1, lastCol).getValues()[0];
       const rowData = srcSheet.getRange(submittedRow, 1, 1, lastCol).getValues()[0];
-      if (!rowData || rowData.every(c => String(c).trim() === '')) continue;
+
+      if (!rowData || rowData.every(c => String(c).trim() === '')) { Logger.log(`  [${configName}] 빈 행`); continue; }
 
       const msg = buildMessage(configName, headers, rowData);
       const ok  = sendWebhook(chatWebhook, msg);
-      Logger.log(`[onFormSubmitHandler] [${configName}] ${ok ? '✅' : '❌'}`);
-      appendLog(userId, ok ? `[${configName}] ⚡즉시 발송 성공 (row ${submittedRow})\n${msg}` : `[${configName}] ❌즉시 발송 실패 (row ${submittedRow})`);
+      Logger.log(`[onFormSubmitHandler] [${configName}] ${ok ? '✅ 성공' : '❌ 실패'}`);
+      appendLog(userId, ok
+        ? `[${configName}] ⚡즉시 발송 성공 (row ${submittedRow})\n${msg}`
+        : `[${configName}] ❌즉시 발송 실패 (row ${submittedRow})`);
       cfgSheet.getRange(i + 1, 6).setValue(srcSheet.getLastRow());
     }
   } catch (ex) { Logger.log('[onFormSubmitHandler] 예외: ' + ex.stack); }
 }
 
 // =============================================================
-//  ★ 1분 폴링 백업
-//  v5.5: 시트 초기화 감지(totalRows < lastChecked → 리셋) 포함
+//  ★ 1분 폴링 백업 알람
+//  - 시트 초기화 감지(totalRows < lastChecked → 리셋) 포함
+//  - 빈 행 건너뜀 처리
 // =============================================================
 function checkAndSendAlarms() {
-  Logger.log('[polling] 시작 v5.5');
+  Logger.log('[polling] 시작 v5.6');
   const sheet = getSheet('ConfigsV2');
   if (!sheet || sheet.getLastRow() < 2) { Logger.log('[polling] 설정 없음'); return; }
 
-  const data = sheet.getDataRange().getValues();
-  const TZ = 'Asia/Seoul';
+  const data     = sheet.getDataRange().getValues();
+  const TZ       = 'Asia/Seoul';
   const todayStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
   const nowKST   = new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
   const day = nowKST.getDay(), hour = nowKST.getHours();
@@ -426,30 +366,30 @@ function checkAndSendAlarms() {
       const isActive = existingId && allTriggers.some(t => t.getUniqueId() === existingId);
       if (!isActive) {
         const newId = installFormTrigger(sheetUrl);
-        if (newId) { sheet.getRange(i + 1, 10).setValue(newId); Logger.log(`✅ [polling] [${data[i][2]}] 트리거 재설치: ${newId}`); }
+        if (newId) { sheet.getRange(i + 1, 10).setValue(newId); Logger.log(`✅ [${data[i][2]}] 트리거 재설치: ${newId}`); }
       }
     }
   } catch (ex) { Logger.log('[polling] 트리거검증 오류: ' + ex.message); }
 
-  // 누락 응답 발송
+  // 누락 데이터 발송
   for (let i = 1; i < data.length; i++) {
     const userId = data[i][1], configName = data[i][2];
     const sheetUrl = String(data[i][3] || '').trim(), chatWebhook = String(data[i][4] || '').trim();
-    let lastChecked = parseInt(data[i][5]) || 0;
+    let   lastChecked = parseInt(data[i][5]) || 0;
     const startDate = fmtDate(data[i][6], TZ), endDate = fmtDate(data[i][7], TZ);
-    const weekdaysOnly = data[i][8] === true || String(data[i][8]).toLowerCase() === 'true';
+    const weekdays  = data[i][8] === true || String(data[i][8]).toLowerCase() === 'true';
 
     try {
-      if (!sheetUrl || !chatWebhook) continue;
-      if (startDate && todayStr < startDate) continue;
-      if (endDate   && todayStr > endDate)   continue;
-      if (weekdaysOnly && (day === 0 || day === 6)) continue;
-      if (weekdaysOnly && day === 1 && hour < 9)    continue;
+      if (!sheetUrl || !chatWebhook)                continue;
+      if (startDate && todayStr < startDate)         continue;
+      if (endDate   && todayStr > endDate)           continue;
+      if (weekdays  && (day === 0 || day === 6))     continue;
+      if (weekdays  && day === 1 && hour < 9)        continue;
 
-      const ds = getTargetSheet(sheetUrl);
+      const ds        = getTargetSheet(sheetUrl);
       const totalRows = ds.getLastRow();
 
-      // ★ v5.5 핵심: 시트 초기화 감지 → lastChecked 리셋
+      // ★ 시트 초기화 감지 → lastChecked 리셋
       if (totalRows < lastChecked) {
         Logger.log(`[polling] [${configName}] ⚠️ 시트 초기화! ${lastChecked}→0 리셋`);
         appendLog(userId, `[${configName}] ⚠️ 시트 초기화 감지 → lastCheckedRow 리셋`);
@@ -462,19 +402,24 @@ function checkAndSendAlarms() {
         continue;
       }
 
-      Logger.log(`[polling] [${configName}] ★ 새 행 발견! (${lastChecked+1}~${totalRows}행)`);
+      Logger.log(`[polling] [${configName}] ★ 신규 감지! (${lastChecked + 1}~${totalRows}행)`);
       const targetData = ds.getDataRange().getValues();
-      const headers = targetData[0] || [];
-      let sentCount = 0;
-      const startIdx = Math.max(lastChecked, 1); // 헤더(0번) 건너뜀
+      const headers    = targetData[0] || [];
+      let   sentCount  = 0;
+      const startIdx   = Math.max(lastChecked, 1); // 헤더(0번) 건너뜀
 
       for (let r = startIdx; r < targetData.length; r++) {
         const rowData = targetData[r];
-        if (!rowData || rowData.every(c => String(c).trim() === '')) continue;
+        if (!rowData || rowData.every(c => String(c).trim() === '')) {
+          Logger.log(`[polling] [${configName}] row ${r + 1} 빈 행 건너뜀`);
+          continue;
+        }
         const msg = buildMessage(configName, headers, rowData);
         const ok  = sendWebhook(chatWebhook, msg);
-        Logger.log(`[polling] [${configName}] row ${r+1} ${ok ? '✅' : '❌'}`);
-        appendLog(userId, ok ? `[${configName}] 📋폴링 발송 성공 (row ${r+1})\n${msg}` : `[${configName}] ❌폴링 발송 실패 (row ${r+1})`);
+        Logger.log(`[polling] [${configName}] row ${r + 1} ${ok ? '✅' : '❌'}`);
+        appendLog(userId, ok
+          ? `[${configName}] 📋폴링 발송 성공 (row ${r + 1})\n${msg}`
+          : `[${configName}] ❌폴링 발송 실패 (row ${r + 1})`);
         if (ok) sentCount++;
       }
       sheet.getRange(i + 1, 6).setValue(totalRows);
@@ -492,9 +437,8 @@ function checkAndSendAlarms() {
 //  BACKEND_SS_ID 저장 + 폴링 + 폼트리거 전체 재설치
 // =============================================================
 function reinstallAllTriggers() {
-  setup(); // BACKEND_SS_ID 저장
+  setup(); // ★ BACKEND_SS_ID 저장
 
-  // 기존 폴링 트리거 제거 후 재설치
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'checkAndSendAlarms') ScriptApp.deleteTrigger(t);
   });
@@ -514,37 +458,34 @@ function reinstallAllTriggers() {
       Logger.log(`✅ [${data[i][2]}] 폼트리거: ${newId || '실패'}`);
     }
   }
-  Logger.log('✅ reinstallAllTriggers 완료. BACKEND_SS_ID=' +
-    PropertiesService.getScriptProperties().getProperty('BACKEND_SS_ID'));
+
+  const backendId = PropertiesService.getScriptProperties().getProperty('BACKEND_SS_ID');
+  Logger.log(`✅ reinstallAllTriggers 완료. BACKEND_SS_ID=${backendId}`);
 }
 function setupTrigger() { reinstallAllTriggers(); }
 
 // =============================================================
-//  진단 함수
+//  진단 (GAS 에디터에서 실행)
 // =============================================================
 function diagnosisAll() {
-  Logger.log('=== Good Alarm v5.5 진단 ===');
+  Logger.log('=== Good Alarm v5.6 진단 ===');
   Logger.log(`시각: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')}`);
   Logger.log(`BACKEND_SS_ID: ${PropertiesService.getScriptProperties().getProperty('BACKEND_SS_ID') || '❌ 미설정!'}`);
   const triggers = ScriptApp.getProjectTriggers();
-  const polling  = triggers.filter(t => t.getHandlerFunction() === 'checkAndSendAlarms');
+  Logger.log(`폴링트리거: ${triggers.filter(t => t.getHandlerFunction() === 'checkAndSendAlarms').length}개`);
   const formTrig = triggers.filter(t => t.getHandlerFunction() === 'onFormSubmitHandler');
-  Logger.log(`▶ 폴링트리거: ${polling.length}개 ${polling.length > 0 ? '✅' : '❌'}`);
-  Logger.log(`▶ 폼트리거: ${formTrig.length}개`);
-  formTrig.forEach((t, idx) => Logger.log(`  [${idx}] src=${t.getTriggerSourceId()} id=${t.getUniqueId()}`));
+  Logger.log(`폼트리거: ${formTrig.length}개`);
+  formTrig.forEach((t, i) => Logger.log(`  [${i}] src=${t.getTriggerSourceId()}`));
   const sheet = getSheet('ConfigsV2');
   if (!sheet) { Logger.log('❌ ConfigsV2 없음'); return; }
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    const configName = data[i][2], sheetUrl = String(data[i][3]||'').trim();
-    const lastCheckedRow = parseInt(data[i][5])||0, triggerId = String(data[i][9]||'').trim();
-    const trigActive = triggerId && triggers.some(t => t.getUniqueId() === triggerId);
-    Logger.log(`\n[${i}] ${configName}`);
-    Logger.log(`  webhook: ${data[i][4] ? '✅' : '❌'} | lastChecked=${lastCheckedRow} | trigger=${trigActive ? '✅' : '❌'}`);
+    const sheetUrl = String(data[i][3] || '').trim(), lastChecked = parseInt(data[i][5]) || 0;
+    Logger.log(`\n[${i}] ${data[i][2]}: webhook=${data[i][4] ? '✅' : '❌'}, lastChecked=${lastChecked}`);
     if (sheetUrl) {
       try {
-        const ds = getTargetSheet(sheetUrl); const tot = ds.getLastRow();
-        Logger.log(`  시트: ${tot}행 | 미처리: ${Math.max(0, tot-lastCheckedRow)}행 ${tot<lastCheckedRow ? '⚠️ 시트초기화감지!' : ''}`);
+        const tot = getTargetSheet(sheetUrl).getLastRow();
+        Logger.log(`  시트: ${tot}행, 미처리: ${Math.max(0, tot - lastChecked)}행 ${tot < lastChecked ? '⚠️시트초기화필요' : ''}`);
       } catch (ex) { Logger.log(`  시트접근오류: ${ex.message}`); }
     }
   }
@@ -577,7 +518,10 @@ function buildMessage(configName, headers, rowData) {
 function sendWebhook(url, text) {
   if (!url) return false;
   try {
-    const res  = UrlFetchApp.fetch(url.trim(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, payload: JSON.stringify({ text }), muteHttpExceptions: true });
+    const res  = UrlFetchApp.fetch(url.trim(), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      payload: JSON.stringify({ text }), muteHttpExceptions: true
+    });
     const code = res.getResponseCode();
     if (code < 200 || code >= 300) Logger.log(`[sendWebhook] HTTP ${code}: ${res.getContentText().substring(0, 200)}`);
     return code >= 200 && code < 300;
@@ -598,5 +542,7 @@ function fmtDate(val, TZ) {
 function doGet() {
   setup();
   ensurePollingTrigger();
-  return ContentService.createTextOutput(`Good Alarm Backend V${GAS_VERSION} Active.`).setMimeType(ContentService.MimeType.TEXT);
+  return ContentService
+    .createTextOutput(`Good Alarm Backend V${GAS_VERSION} Active.`)
+    .setMimeType(ContentService.MimeType.TEXT);
 }
