@@ -4,9 +4,7 @@ export const apiCall = async (payload) => {
   try {
     const response = await fetch(BASE_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain', // Bypass CORS preflight
-      },
+      headers: { 'Content-Type': 'text/plain' }, // CORS preflight 우회
       body: JSON.stringify(payload),
     });
 
@@ -25,30 +23,16 @@ export const apiCall = async (payload) => {
   }
 };
 
-export const loginApi = async (name, team, password) => {
-  return await apiCall({ action: 'login', name, team, password });
-};
+export const loginApi    = (name, team, password) => apiCall({ action: 'login',    name, team, password });
+export const registerApi = (name, team, password) => apiCall({ action: 'register', name, team, password });
+export const getConfigApi   = (userId) => apiCall({ action: 'getConfig', userId });
+export const getLogsApi     = (userId) => apiCall({ action: 'getLogs',   userId });
+export const addConfigApi    = (userId, configData) => apiCall({ action: 'addConfig',    userId, ...configData });
+export const updateConfigApi = (userId, configId, configData) => apiCall({ action: 'updateConfig', userId, configId, ...configData });
+export const deleteConfigApi = (userId, configId) => apiCall({ action: 'deleteConfig', userId, configId });
 
-export const registerApi = async (name, team, password) => {
-  return await apiCall({ action: 'register', name, team, password });
-};
+// ★ 신규: 웹훅 연결 테스트
+export const testWebhookApi = (userId, configId) => apiCall({ action: 'testWebhook', userId, configId });
 
-export const getConfigApi = async (userId) => {
-  return await apiCall({ action: 'getConfig', userId });
-};
-
-export const addConfigApi = async (userId, configData) => {
-  return await apiCall({ action: 'addConfig', userId, ...configData });
-};
-
-export const updateConfigApi = async (userId, configId, configData) => {
-  return await apiCall({ action: 'updateConfig', userId, configId, ...configData });
-};
-
-export const deleteConfigApi = async (userId, configId) => {
-  return await apiCall({ action: 'deleteConfig', userId, configId });
-};
-
-export const getLogsApi = async (userId) => {
-  return await apiCall({ action: 'getLogs', userId });
-};
+// ★ 신규: 즉시 체크 & 발송
+export const runCheckNowApi = (userId, configId) => apiCall({ action: 'runCheckNow', userId, configId });
