@@ -1,17 +1,17 @@
 // =============================================================
-//  Good Alarm - Backend v4 (Google Apps Script)
-//  ✅ 설치/설정 없이 바로 동작
-//  ✅ 1분 폴링 트리거 (빠른 감지)
-//  ✅ 즉시 확인 버튼 (프론트에서 강제 체크)
-//  ✅ 웹훅 테스트 버튼
+//  Good Alarm - Backend v4.1 (Google Apps Script)
+//  ✅ 설치/설정 없이 바로 동작 (트리거 자동 설치)
+//  ✅ 1분 폴링 트리거 (첫 API 호출 시 자동 등록)
+//  ✅ 웹훅 테스트 / 즉시 확인 버튼
 //  ─────────────────────────────────────────
-//  [GAS 배포 방법]
-//  1. 이 코드를 GAS 편집기에 붙여넣기
-//  2. 저장 후 '배포' > '새 배포' > 웹 앱
-//     - 실행 주체: 나(본인)
-//     - 액세스:   모든 사용자
-//  3. 배포 후 함수 목록에서 setupTrigger 선택 → 실행 (1회만)
+//  [GAS 배포 방법 - 이것만 하면 됨]
+//  1. 이 코드를 GAS 편집기에 전체 붙여넣기
+//  2. 저장 후 '배포' > '배포 관리' > 기존 배포 선택 > 연필 아이콘
+//     > '새 버전 저장' 클릭
+//  ⚠️ '새 배포'가 아닌 '배포 관리'로 같은 URL 유지 필수!
 // =============================================================
+
+const GAS_VERSION = 4;
 
 // ── DB 시트 초기화 ──────────────────────────────────────────
 function setup() {
@@ -29,20 +29,40 @@ function setup() {
   });
 }
 
-// ── 폴링 트리거 설치 (배포 후 1회 수동 실행) ────────────────
+// ── ★ 폴링 트리거 자동 설치 (매 doPost 호출 시 확인, 10분 캐시) ──
+function ensurePollingTrigger() {
+  try {
+    const props     = PropertiesService.getScriptProperties();
+    const lastCheck = parseInt(props.getProperty('triggerChecked') || '0');
+    const now       = Date.now();
+    // 10분 이내 이미 확인했으면 건너뜀 (성능 최적화)
+    if (now - lastCheck < 10 * 60 * 1000) return;
+
+    const exists = ScriptApp.getProjectTriggers()
+      .some(t => t.getHandlerFunction() === 'checkAndSendAlarms');
+
+    if (!exists) {
+      ScriptApp.newTrigger('checkAndSendAlarms')
+        .timeBased()
+        .everyMinutes(1)
+        .create();
+      Logger.log('✅ [ensurePollingTrigger] 1분 폴링 트리거 자동 설치 완료!');
+    }
+    props.setProperty('triggerChecked', String(now));
+  } catch (ex) {
+    Logger.log('[ensurePollingTrigger] 오류 (무시): ' + ex.message);
+  }
+}
+
+// 수동 실행용 (선택사항)
 function setupTrigger() {
   setup();
-  // 기존 checkAndSendAlarms 트리거 모두 제거 후 재생성 (중복 방지)
   ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === 'checkAndSendAlarms') {
-      ScriptApp.deleteTrigger(t);
-    }
+    if (t.getHandlerFunction() === 'checkAndSendAlarms') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('checkAndSendAlarms')
-    .timeBased()
-    .everyMinutes(1)
-    .create();
-  Logger.log('✅ 1분 폴링 트리거 설치 완료. 이제 설정만 하면 자동으로 알람이 발송됩니다.');
+  ScriptApp.newTrigger('checkAndSendAlarms').timeBased().everyMinutes(1).create();
+  PropertiesService.getScriptProperties().setProperty('triggerChecked', String(Date.now()));
+  Logger.log('✅ [setupTrigger] 1분 트리거 수동 설치 완료.');
 }
 
 // ── doPost: API 라우터 ───────────────────────────────────────
@@ -52,7 +72,9 @@ function doPost(e) {
       return jsonResponse({ success: false, message: 'No payload' });
     }
     const data = JSON.parse(e.postData.contents);
+
     setup();
+    ensurePollingTrigger(); // ★ 첫 호출 시 자동으로 트리거 등록
 
     const routes = {
       register:     () => handleRegister(data),
@@ -64,12 +86,12 @@ function doPost(e) {
       getLogs:      () => handleGetLogs(data),
       testWebhook:  () => handleTestWebhook(data),
       runCheckNow:  () => handleRunCheckNow(data),
-      checkVersion: () => ({ success: true, version: 4, message: 'Good Alarm Backend V4' }), // ★ 버전 확인
+      checkVersion: () => ({ success: true, version: GAS_VERSION, message: `Good Alarm Backend V${GAS_VERSION}` }),
     };
 
     const action = data.action;
     if (!routes[action]) {
-      return jsonResponse({ success: false, message: `알 수 없는 액션: ${action}. GAS를 최신 버전으로 재배포해주세요.` });
+      return jsonResponse({ success: false, message: `알 수 없는 액션: ${action}` });
     }
     return jsonResponse(routes[action]());
   } catch (err) {
@@ -149,7 +171,7 @@ function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDa
   sheet.appendRow([configId, userId, name, sheetUrl, chatWebhook,
                    lastCheckedRow, startDate || '', endDate || '', weekdaysOnly || false]);
   Logger.log(`[addConfig] 추가 완료. name=${name}, lastCheckedRow=${lastCheckedRow}`);
-  return { success: true, message: '설정이 추가되었습니다! 1분 내로 자동 감지가 시작됩니다.' };
+  return { success: true, message: '설정이 추가되었습니다. 1분 내로 자동 감지가 시작됩니다.' };
 }
 
 // ── 설정 수정 ─────────────────────────────────────────────────
@@ -222,7 +244,7 @@ function handleTestWebhook({ userId, configId }) {
   for (let i = 1; i < data.length; i++) {
     const rowConfigId = String(data[i][0]).trim();
     const rowUserId   = String(data[i][1]).trim();
-    Logger.log(`[testWebhook] 비교 중 [${i}]: rowConfigId=${rowConfigId}, rowUserId=${rowUserId}`);
+    Logger.log(`[testWebhook] 비교 [${i}]: rowConfigId="${rowConfigId}" vs "${String(configId).trim()}"`);
 
     if (rowConfigId !== String(configId).trim() || rowUserId !== String(userId).trim()) continue;
 
@@ -231,9 +253,9 @@ function handleTestWebhook({ userId, configId }) {
 
     if (!chatWebhook) return { success: false, message: '웹훅 URL이 등록되지 않았습니다.' };
 
-    Logger.log(`[testWebhook] [${configName}] 웹훅 전송 시도: ${chatWebhook.substring(0, 60)}...`);
+    Logger.log(`[testWebhook] [${configName}] 웹훅 전송 시도: ${chatWebhook.substring(0, 70)}...`);
     const now = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
-    const msg = `✅ [Good Alarm 테스트]\n*${configName}* 웹훅 연결에 성공했습니다!\n시각: ${now}`;
+    const msg = `✅ [Good Alarm 테스트]\n*${configName}* 웹훅 연결 성공!\n시각: ${now}`;
     const ok  = sendWebhook(chatWebhook, msg);
 
     appendLog(userId, ok
@@ -244,7 +266,7 @@ function handleTestWebhook({ userId, configId }) {
       success: ok,
       message: ok
         ? '구글 챗으로 테스트 메시지를 발송했습니다! 챗에서 확인하세요.'
-        : '웹훅 전송 실패. 웹훅 URL이 올바른지 확인해주세요. (만료된 URL이거나 스페이스 권한 문제일 수 있습니다.)'
+        : '웹훅 전송 실패. 웹훅 URL이 올바른지 확인해주세요.'
     };
   }
   return { success: false, message: `설정을 찾을 수 없습니다. (configId=${configId})` };
@@ -302,7 +324,7 @@ function handleRunCheckNow({ userId, configId }) {
     }
     sheet.getRange(i + 1, 6).setValue(totalRows);
 
-    return { success: true, message: `${sentCount}건 발송 완료! (${lastCheckedRow + 1}~${totalRows}행)` };
+    return { success: true, message: `${sentCount}건 구글 챗 발송 완료! (${lastCheckedRow + 1}~${totalRows}행)` };
   }
   return { success: false, message: `설정을 찾을 수 없습니다. (configId=${configId})` };
 }
@@ -313,12 +335,12 @@ function handleRunCheckNow({ userId, configId }) {
 function checkAndSendAlarms() {
   const sheet = getSheet('ConfigsV2');
   if (!sheet) return;
-  const data    = sheet.getDataRange().getValues();
-  const TZ      = 'Asia/Seoul';
+  const data     = sheet.getDataRange().getValues();
+  const TZ       = 'Asia/Seoul';
   const todayStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
-  const nowKST  = new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
-  const day     = nowKST.getDay();
-  const hour    = nowKST.getHours();
+  const nowKST   = new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
+  const day      = nowKST.getDay();
+  const hour     = nowKST.getHours();
 
   Logger.log(`[polling] 시작. ${todayStr} day=${day} hour=${hour}`);
 
@@ -338,8 +360,8 @@ function checkAndSendAlarms() {
       if (endDate   && todayStr > endDate)   continue;
 
       if (weekdaysOnly) {
-        if (day === 0 || day === 6) continue;                        // 주말 건너뜀
-        if (day === 1 && hour < 9)  continue;                        // 월요일 9시 이전 건너뜀
+        if (day === 0 || day === 6) continue;
+        if (day === 1 && hour < 9)  continue;
       }
 
       const dataSheet  = getTargetSheet(sheetUrl);
@@ -347,7 +369,6 @@ function checkAndSendAlarms() {
       const totalRows  = targetData.length;
       const headers    = targetData[0];
 
-      // 행수 감소 보정
       if (totalRows < lastChecked) {
         sheet.getRange(i + 1, 6).setValue(totalRows);
         lastChecked = totalRows;
@@ -381,10 +402,9 @@ function checkAndSendAlarms() {
 //  진단 함수 (에디터에서 직접 실행)
 // =============================================================
 function diagnosisAll() {
-  Logger.log('=== Good Alarm v4 진단 ===');
+  Logger.log('=== Good Alarm v4.1 진단 ===');
   const TZ  = 'Asia/Seoul';
-  const now = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss');
-  Logger.log(`실행 시각: ${now}`);
+  Logger.log(`실행 시각: ${Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss')}`);
 
   const triggers = ScriptApp.getProjectTriggers();
   Logger.log(`\n▶ 트리거 수: ${triggers.length}`);
@@ -479,7 +499,7 @@ function sendWebhook(url, text) {
     const code = res.getResponseCode();
     Logger.log(`[sendWebhook] HTTP ${code}`);
     if (code < 200 || code >= 300) {
-      Logger.log(`[sendWebhook] 응답 내용: ${res.getContentText().substring(0, 200)}`);
+      Logger.log(`[sendWebhook] 응답: ${res.getContentText().substring(0, 200)}`);
     }
     return code >= 200 && code < 300;
   } catch (ex) {
@@ -501,7 +521,8 @@ function fmtDate(val, TZ) {
 
 function doGet(e) {
   setup();
+  ensurePollingTrigger();
   return ContentService
-    .createTextOutput('Good Alarm Backend V4 Active.')
+    .createTextOutput(`Good Alarm Backend V${GAS_VERSION} Active.`)
     .setMimeType(ContentService.MimeType.TEXT);
 }

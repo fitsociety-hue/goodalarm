@@ -12,7 +12,7 @@ export default function Dashboard() {
   const [loading, setLoading]     = useState(false);
   const [message, setMessage]     = useState({ type: '', text: '' });
   const [actionLoading, setActionLoading] = useState({});
-  const [gasOutdated, setGasOutdated]     = useState(false); // GAS 구버전 감지
+  const [gasOutdated, setGasOutdated]     = useState(false);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetToDelete, setTargetToDelete]       = useState(null);
@@ -29,7 +29,6 @@ export default function Dashboard() {
     checkGasVersion();
   }, [navigate]);
 
-  // GAS 버전 확인
   const checkGasVersion = async () => {
     try {
       const res = await checkGasVersionApi();
@@ -75,8 +74,7 @@ export default function Dashboard() {
   };
 
   const isOldGasResponse = (res) =>
-    !res || (typeof res === 'object' && Object.keys(res).length === 0) ||
-    (res.message && res.message.includes('알 수 없는 액션'));
+    !res || (typeof res === 'object' && Object.keys(res).length === 0);
 
   /* ─── 웹훅 테스트 ─── */
   const handleTestWebhook = async (conf) => {
@@ -85,10 +83,10 @@ export default function Dashboard() {
       const res = await testWebhookApi(user.userId, conf.configId);
       if (isOldGasResponse(res)) {
         setGasOutdated(true);
-        showMessage('error', '⚠️ GAS 구버전이 실행 중입니다. 아래 안내를 따라 GAS를 최신 버전으로 재배포해주세요.');
+        showMessage('error', '⚠️ GAS 구버전 실행 중! 아래 안내를 따라 GAS를 재배포해주세요.');
       } else {
         showMessage(res?.success ? 'success' : 'error',
-          res?.message || (res?.success ? '테스트 메시지 발송 완료!' : '웹훅 URL이 올바른지 확인해주세요.'));
+          res?.message || (res?.success ? '테스트 메시지 발송 완료!' : '웹훅 URL을 확인해주세요.'));
         if (res?.success) loadData(user.userId);
       }
     } catch {
@@ -105,7 +103,7 @@ export default function Dashboard() {
       const res = await runCheckNowApi(user.userId, conf.configId);
       if (isOldGasResponse(res)) {
         setGasOutdated(true);
-        showMessage('error', '⚠️ GAS 구버전이 실행 중입니다. 아래 안내를 따라 GAS를 최신 버전으로 재배포해주세요.');
+        showMessage('error', '⚠️ GAS 구버전 실행 중! 아래 안내를 따라 GAS를 재배포해주세요.');
       } else {
         showMessage(res?.success ? 'success' : 'error',
           res?.message || (res?.success ? '즉시 확인 완료!' : '즉시 확인 실패'));
@@ -156,7 +154,7 @@ export default function Dashboard() {
       {gasOutdated && (
         <div style={{
           background: 'linear-gradient(135deg, #FEF3C7, #FDE68A)',
-          border: '1px solid #F59E0B',
+          border: '2px solid #F59E0B',
           borderRadius: '10px',
           padding: '1.25rem 1.5rem',
           marginBottom: '1.5rem',
@@ -164,23 +162,23 @@ export default function Dashboard() {
           gap: '1rem',
           alignItems: 'flex-start',
         }}>
-          <AlertTriangle size={24} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
-          <div>
-            <strong style={{ color: '#92400E', fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>
+          <AlertTriangle size={28} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <div style={{ flex: 1 }}>
+            <strong style={{ color: '#92400E', fontSize: '1.05rem', display: 'block', marginBottom: '0.5rem' }}>
               ⚠️ Google Apps Script 업데이트가 필요합니다
             </strong>
-            <p style={{ margin: 0, color: '#78350F', fontSize: '0.9rem', lineHeight: '1.6' }}>
-              현재 구버전 GAS가 실행 중이라 웹훅 테스트·즉시 확인·자동 알람이 동작하지 않습니다.<br />
-              아래 순서대로 GAS를 업데이트해 주세요:
+            <p style={{ margin: '0 0 0.75rem 0', color: '#78350F', fontSize: '0.9rem', lineHeight: '1.6' }}>
+              웹훅 테스트·즉시 확인·자동 알람이 동작하지 않습니다.<br />
+              <strong>⚠️ 중요: 아래 3단계에서 반드시 "배포 관리"를 사용해야 URL이 유지됩니다!</strong>
             </p>
-            <ol style={{ margin: '0.75rem 0 0 1.25rem', color: '#78350F', fontSize: '0.875rem', lineHeight: '2' }}>
+            <ol style={{ margin: '0 0 0 1.25rem', color: '#78350F', fontSize: '0.875rem', lineHeight: '2.2' }}>
               <li><a href="https://script.google.com/home" target="_blank" rel="noreferrer" style={{ color: '#1D4ED8', fontWeight: 'bold' }}>GAS 편집기</a> 접속 → 프로젝트 열기</li>
-              <li>로컬 파일 <code style={{ background: '#FDE68A', padding: '0 4px', borderRadius: '3px' }}>gas_backend/Code.gs</code> 전체 내용을 복사하여 편집기에 붙여넣기</li>
-              <li><strong>배포 &gt; 새 배포</strong> (실행 주체: 나 / 액세스: 모든 사용자)</li>
-              <li>배포 완료 후 함수 목록에서 <code style={{ background: '#FDE68A', padding: '0 4px', borderRadius: '3px' }}>setupTrigger</code> 선택 → <strong>실행</strong></li>
+              <li>로컬 파일 <code style={{ background: '#FDE68A', padding: '0 4px', borderRadius: '3px' }}>gas_backend/Code.gs</code> 전체 내용 복사 → GAS 편집기에 전체 교체 붙여넣기 → 저장(Ctrl+S)</li>
+              <li>상단 메뉴 <strong>배포 → 배포 관리</strong> 클릭 → 기존 배포 선택 → <strong>연필(✏️) 아이콘 → 새 버전 → 배포</strong></li>
+              <li>✅ 배포 완료! 이 페이지를 새로고침하면 경고가 사라집니다</li>
             </ol>
           </div>
-          <button onClick={() => setGasOutdated(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', flexShrink: 0, fontSize: '1.25rem' }}>✕</button>
+          <button onClick={() => setGasOutdated(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', flexShrink: 0, fontSize: '1.4rem', lineHeight: 1 }}>✕</button>
         </div>
       )}
 
@@ -248,7 +246,6 @@ export default function Dashboard() {
                         borderRadius: '10px',
                         opacity: configTab === 'expired' ? 0.7 : 1
                       }}>
-                        {/* 제목 + 수정/삭제 */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
                           <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '1.05rem' }}>{conf.name}</h3>
                           <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
@@ -261,7 +258,6 @@ export default function Dashboard() {
                           </div>
                         </div>
 
-                        {/* 기간 / 알람 범위 */}
                         <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '0.2rem', marginBottom: '0.9rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                             <Calendar size={13} />
@@ -281,7 +277,6 @@ export default function Dashboard() {
                           </div>
                         </div>
 
-                        {/* 액션 버튼 */}
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <button
                             onClick={() => handleTestWebhook(conf)}
@@ -331,10 +326,10 @@ export default function Dashboard() {
             ) : logs.length === 0 ? (
               <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-muted)' }}>
                 <Bell size={48} style={{ margin: '0 auto 1rem', opacity: 0.2 }} />
-                <p>아직 발송된 알람 기록이 없습니다.<br />
+                <p>
                   {gasOutdated
                     ? <strong style={{ color: '#B45309' }}>위 노란 안내를 따라 GAS를 업데이트해주세요.</strong>
-                    : '웹훅 테스트 버튼으로 연결을 확인해보세요.'}
+                    : '아직 발송된 알람 기록이 없습니다.\n웹훅 테스트 버튼으로 연결을 확인해보세요.'}
                 </p>
               </div>
             ) : (
