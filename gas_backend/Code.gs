@@ -55,15 +55,16 @@ function doPost(e) {
     setup();
 
     const routes = {
-      register:    () => handleRegister(data),
-      login:       () => handleLogin(data),
-      getConfig:   () => handleGetConfig(data),
-      addConfig:   () => handleAddConfig(data),
-      updateConfig:() => handleUpdateConfig(data),
-      deleteConfig:() => handleDeleteConfig(data),
-      getLogs:     () => handleGetLogs(data),
-      testWebhook: () => handleTestWebhook(data),   // ★ 웹훅 테스트
-      runCheckNow: () => handleRunCheckNow(data),   // ★ 즉시 확인
+      register:     () => handleRegister(data),
+      login:        () => handleLogin(data),
+      getConfig:    () => handleGetConfig(data),
+      addConfig:    () => handleAddConfig(data),
+      updateConfig: () => handleUpdateConfig(data),
+      deleteConfig: () => handleDeleteConfig(data),
+      getLogs:      () => handleGetLogs(data),
+      testWebhook:  () => handleTestWebhook(data),
+      runCheckNow:  () => handleRunCheckNow(data),
+      checkVersion: () => ({ success: true, version: 4, message: 'Good Alarm Backend V4' }), // ★ 버전 확인
     };
 
     const action = data.action;

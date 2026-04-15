@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, runCheckNowApi } from '../services/api';
-import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, Zap, Wifi } from 'lucide-react';
+import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, runCheckNowApi, checkGasVersionApi } from '../services/api';
+import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, Zap, Wifi, AlertTriangle } from 'lucide-react';
 
+const GAS_REQUIRED_VERSION = 4;
 
 export default function Dashboard() {
-  const [user, setUser]       = useState(null);
-  const [configs, setConfigs] = useState([]);
-  const [logs, setLogs]       = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
-  const [actionLoading, setActionLoading] = useState({}); // { [configId]: 'test' | 'check' | null }
+  const [user, setUser]           = useState(null);
+  const [configs, setConfigs]     = useState([]);
+  const [logs, setLogs]           = useState([]);
+  const [loading, setLoading]     = useState(false);
+  const [message, setMessage]     = useState({ type: '', text: '' });
+  const [actionLoading, setActionLoading] = useState({});
+  const [gasOutdated, setGasOutdated]     = useState(false); // GAS 구버전 감지
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetToDelete, setTargetToDelete]       = useState(null);
@@ -24,7 +26,22 @@ export default function Dashboard() {
     const parsed = JSON.parse(userData);
     setUser(parsed);
     loadData(parsed.userId);
+    checkGasVersion();
   }, [navigate]);
+
+  // GAS 버전 확인
+  const checkGasVersion = async () => {
+    try {
+      const res = await checkGasVersionApi();
+      if (!res || !res.version || res.version < GAS_REQUIRED_VERSION) {
+        setGasOutdated(true);
+      } else {
+        setGasOutdated(false);
+      }
+    } catch {
+      setGasOutdated(true);
+    }
+  };
 
   const loadData = async (userId) => {
     setLoading(true);
@@ -44,7 +61,7 @@ export default function Dashboard() {
 
   const showMessage = (type, text) => {
     setMessage({ type, text });
-    setTimeout(() => setMessage({ type: '', text: '' }), 6000);
+    setTimeout(() => setMessage({ type: '', text: '' }), 7000);
   };
 
   const formatDateLabel = (dateStr) => {
@@ -57,14 +74,23 @@ export default function Dashboard() {
     } catch { return dateStr; }
   };
 
-  /* ─── 알람 테스트 ─── */
+  const isOldGasResponse = (res) =>
+    !res || (typeof res === 'object' && Object.keys(res).length === 0) ||
+    (res.message && res.message.includes('알 수 없는 액션'));
+
+  /* ─── 웹훅 테스트 ─── */
   const handleTestWebhook = async (conf) => {
     setActionLoading(prev => ({ ...prev, [conf.configId]: 'test' }));
     try {
       const res = await testWebhookApi(user.userId, conf.configId);
-      showMessage(res?.success ? 'success' : 'error',
-        res?.message || (res?.success ? '테스트 메시지를 발송했습니다!' : '웹훅 테스트 실패'));
-      if (res?.success) loadData(user.userId);
+      if (isOldGasResponse(res)) {
+        setGasOutdated(true);
+        showMessage('error', '⚠️ GAS 구버전이 실행 중입니다. 아래 안내를 따라 GAS를 최신 버전으로 재배포해주세요.');
+      } else {
+        showMessage(res?.success ? 'success' : 'error',
+          res?.message || (res?.success ? '테스트 메시지 발송 완료!' : '웹훅 URL이 올바른지 확인해주세요.'));
+        if (res?.success) loadData(user.userId);
+      }
     } catch {
       showMessage('error', '서버 통신 오류');
     } finally {
@@ -72,14 +98,19 @@ export default function Dashboard() {
     }
   };
 
-  /* ─── 즉시 체크 ─── */
+  /* ─── 즉시 확인 ─── */
   const handleRunCheckNow = async (conf) => {
     setActionLoading(prev => ({ ...prev, [conf.configId]: 'check' }));
     try {
       const res = await runCheckNowApi(user.userId, conf.configId);
-      showMessage(res?.success ? 'success' : 'error',
-        res?.message || (res?.success ? '즉시 확인 완료!' : '즉시 확인 실패'));
-      if (res?.success) loadData(user.userId);
+      if (isOldGasResponse(res)) {
+        setGasOutdated(true);
+        showMessage('error', '⚠️ GAS 구버전이 실행 중입니다. 아래 안내를 따라 GAS를 최신 버전으로 재배포해주세요.');
+      } else {
+        showMessage(res?.success ? 'success' : 'error',
+          res?.message || (res?.success ? '즉시 확인 완료!' : '즉시 확인 실패'));
+        if (res?.success) loadData(user.userId);
+      }
     } catch {
       showMessage('error', '서버 통신 오류');
     } finally {
@@ -113,13 +144,45 @@ export default function Dashboard() {
     <div className="container animate-fade-in" style={{ padding: '2rem' }}>
 
       {/* ── 헤더 ── */}
-      <header className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', padding: '1.5rem 2rem' }}>
+      <header className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', padding: '1.5rem 2rem' }}>
         <div>
           <h1 style={{ fontSize: '1.5rem', margin: 0, color: 'var(--primary)' }}>Good Alarm 통합관리</h1>
           <p style={{ margin: 0 }}>환영합니다, {user.team} {user.name}님</p>
         </div>
         <button onClick={logout} className="btn btn-secondary"><LogOut size={18} /> 로그아웃</button>
       </header>
+
+      {/* ── GAS 구버전 경고 배너 ── */}
+      {gasOutdated && (
+        <div style={{
+          background: 'linear-gradient(135deg, #FEF3C7, #FDE68A)',
+          border: '1px solid #F59E0B',
+          borderRadius: '10px',
+          padding: '1.25rem 1.5rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          gap: '1rem',
+          alignItems: 'flex-start',
+        }}>
+          <AlertTriangle size={24} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <div>
+            <strong style={{ color: '#92400E', fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>
+              ⚠️ Google Apps Script 업데이트가 필요합니다
+            </strong>
+            <p style={{ margin: 0, color: '#78350F', fontSize: '0.9rem', lineHeight: '1.6' }}>
+              현재 구버전 GAS가 실행 중이라 웹훅 테스트·즉시 확인·자동 알람이 동작하지 않습니다.<br />
+              아래 순서대로 GAS를 업데이트해 주세요:
+            </p>
+            <ol style={{ margin: '0.75rem 0 0 1.25rem', color: '#78350F', fontSize: '0.875rem', lineHeight: '2' }}>
+              <li><a href="https://script.google.com/home" target="_blank" rel="noreferrer" style={{ color: '#1D4ED8', fontWeight: 'bold' }}>GAS 편집기</a> 접속 → 프로젝트 열기</li>
+              <li>로컬 파일 <code style={{ background: '#FDE68A', padding: '0 4px', borderRadius: '3px' }}>gas_backend/Code.gs</code> 전체 내용을 복사하여 편집기에 붙여넣기</li>
+              <li><strong>배포 &gt; 새 배포</strong> (실행 주체: 나 / 액세스: 모든 사용자)</li>
+              <li>배포 완료 후 함수 목록에서 <code style={{ background: '#FDE68A', padding: '0 4px', borderRadius: '3px' }}>setupTrigger</code> 선택 → <strong>실행</strong></li>
+            </ol>
+          </div>
+          <button onClick={() => setGasOutdated(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', flexShrink: 0, fontSize: '1.25rem' }}>✕</button>
+        </div>
+      )}
 
       {/* ── 토스트 메시지 ── */}
       {message.text && (
@@ -220,7 +283,6 @@ export default function Dashboard() {
 
                         {/* 액션 버튼 */}
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          {/* 웹훅 테스트 */}
                           <button
                             onClick={() => handleTestWebhook(conf)}
                             disabled={!!isActing}
@@ -228,13 +290,9 @@ export default function Dashboard() {
                             style={{ flex: 1, fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
                             title="구글 챗으로 테스트 메시지 발송"
                           >
-                            {isActing === 'test'
-                              ? <RefreshCw size={14} className="spin-icon" />
-                              : <Wifi size={14} />}
+                            {isActing === 'test' ? <RefreshCw size={14} className="spin-icon" /> : <Wifi size={14} />}
                             {isActing === 'test' ? '발송 중...' : '웹훅 테스트'}
                           </button>
-
-                          {/* 즉시 확인 */}
                           <button
                             onClick={() => handleRunCheckNow(conf)}
                             disabled={!!isActing}
@@ -242,9 +300,7 @@ export default function Dashboard() {
                             style={{ flex: 1, fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', background: '#10B981' }}
                             title="지금 즉시 새 응답을 확인하고 발송"
                           >
-                            {isActing === 'check'
-                              ? <RefreshCw size={14} className="spin-icon" />
-                              : <Zap size={14} />}
+                            {isActing === 'check' ? <RefreshCw size={14} className="spin-icon" /> : <Zap size={14} />}
                             {isActing === 'check' ? '확인 중...' : '지금 즉시 확인'}
                           </button>
                         </div>
@@ -275,7 +331,11 @@ export default function Dashboard() {
             ) : logs.length === 0 ? (
               <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-muted)' }}>
                 <Bell size={48} style={{ margin: '0 auto 1rem', opacity: 0.2 }} />
-                <p>아직 발송된 알람 기록이 없습니다.<br />위 목록에서 <strong>웹훅 테스트</strong>를 눌러 연결을 확인하세요.</p>
+                <p>아직 발송된 알람 기록이 없습니다.<br />
+                  {gasOutdated
+                    ? <strong style={{ color: '#B45309' }}>위 노란 안내를 따라 GAS를 업데이트해주세요.</strong>
+                    : '웹훅 테스트 버튼으로 연결을 확인해보세요.'}
+                </p>
               </div>
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -316,8 +376,7 @@ export default function Dashboard() {
             <Trash2 size={48} color="#B91C1C" style={{ marginBottom: '1rem' }} />
             <h2 style={{ marginTop: 0, marginBottom: '0.5rem' }}>정말 삭제하시겠습니까?</h2>
             <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
-              <strong>{targetToDelete.name}</strong> 알람 설정이 삭제됩니다.<br />
-              즉시 알람 트리거도 함께 제거됩니다.
+              <strong>{targetToDelete.name}</strong> 알람 설정이 삭제됩니다.
             </p>
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button onClick={() => setIsDeleteModalOpen(false)} className="btn btn-secondary" style={{ flex: 1 }}>취소</button>
