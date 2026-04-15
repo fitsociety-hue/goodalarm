@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, runCheckNowApi, checkGasVersionApi } from '../services/api';
-import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, Zap, Wifi, AlertTriangle } from 'lucide-react';
+import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, runCheckNowApi, checkGasVersionApi, getBaseUrl, setBaseUrl } from '../services/api';
+import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, Zap, Wifi, AlertTriangle, Check } from 'lucide-react';
 
 const GAS_REQUIRED_VERSION = 4;
 
@@ -13,6 +13,8 @@ export default function Dashboard() {
   const [message, setMessage]     = useState({ type: '', text: '' });
   const [actionLoading, setActionLoading] = useState({});
   const [gasOutdated, setGasOutdated]     = useState(false);
+  const [gasUrlInput, setGasUrlInput]     = useState('');
+  const [urlSaved, setUrlSaved]           = useState(false);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [targetToDelete, setTargetToDelete]       = useState(null);
@@ -25,6 +27,7 @@ export default function Dashboard() {
     if (!userData) { navigate('/'); return; }
     const parsed = JSON.parse(userData);
     setUser(parsed);
+    setGasUrlInput(getBaseUrl());
     loadData(parsed.userId);
     checkGasVersion();
   }, [navigate]);
@@ -40,6 +43,20 @@ export default function Dashboard() {
     } catch {
       setGasOutdated(true);
     }
+  };
+
+  const saveGasUrl = async () => {
+    if (!gasUrlInput.trim().includes('script.google.com')) {
+      showMessage('error', '올바른 GAS URL이 아닙니다. script.google.com 포함 URL을 입력하세요.');
+      return;
+    }
+    setBaseUrl(gasUrlInput.trim());
+    setUrlSaved(true);
+    showMessage('success', '✅ URL이 저장되었습니다. GAS 버전을 다시 확인합니다...');
+    setTimeout(async () => {
+      await checkGasVersion();
+      setUrlSaved(false);
+    }, 1500);
   };
 
   const loadData = async (userId) => {
@@ -83,7 +100,7 @@ export default function Dashboard() {
       const res = await testWebhookApi(user.userId, conf.configId);
       if (isOldGasResponse(res)) {
         setGasOutdated(true);
-        showMessage('error', '⚠️ GAS 구버전 실행 중! 아래 안내를 따라 GAS를 재배포해주세요.');
+        showMessage('error', '⚠️ GAS 구버전 실행 중! 아래 안내에서 새 URL을 입력해주세요.');
       } else {
         showMessage(res?.success ? 'success' : 'error',
           res?.message || (res?.success ? '테스트 메시지 발송 완료!' : '웹훅 URL을 확인해주세요.'));
@@ -103,7 +120,7 @@ export default function Dashboard() {
       const res = await runCheckNowApi(user.userId, conf.configId);
       if (isOldGasResponse(res)) {
         setGasOutdated(true);
-        showMessage('error', '⚠️ GAS 구버전 실행 중! 아래 안내를 따라 GAS를 재배포해주세요.');
+        showMessage('error', '⚠️ GAS 구버전 실행 중! 아래 안내에서 새 URL을 입력해주세요.');
       } else {
         showMessage(res?.success ? 'success' : 'error',
           res?.message || (res?.success ? '즉시 확인 완료!' : '즉시 확인 실패'));
@@ -150,35 +167,58 @@ export default function Dashboard() {
         <button onClick={logout} className="btn btn-secondary"><LogOut size={18} /> 로그아웃</button>
       </header>
 
-      {/* ── GAS 구버전 경고 배너 ── */}
+      {/* ── GAS URL 업데이트 배너 (구버전 감지 시) ── */}
       {gasOutdated && (
         <div style={{
           background: 'linear-gradient(135deg, #FEF3C7, #FDE68A)',
           border: '2px solid #F59E0B',
-          borderRadius: '10px',
+          borderRadius: '12px',
           padding: '1.25rem 1.5rem',
           marginBottom: '1.5rem',
-          display: 'flex',
-          gap: '1rem',
-          alignItems: 'flex-start',
         }}>
-          <AlertTriangle size={28} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
-          <div style={{ flex: 1 }}>
-            <strong style={{ color: '#92400E', fontSize: '1.05rem', display: 'block', marginBottom: '0.5rem' }}>
-              ⚠️ Google Apps Script 업데이트가 필요합니다
-            </strong>
-            <p style={{ margin: '0 0 0.75rem 0', color: '#78350F', fontSize: '0.9rem', lineHeight: '1.6' }}>
-              웹훅 테스트·즉시 확인·자동 알람이 동작하지 않습니다.<br />
-              <strong>⚠️ 중요: 아래 3단계에서 반드시 "배포 관리"를 사용해야 URL이 유지됩니다!</strong>
-            </p>
-            <ol style={{ margin: '0 0 0 1.25rem', color: '#78350F', fontSize: '0.875rem', lineHeight: '2.2' }}>
-              <li><a href="https://script.google.com/home" target="_blank" rel="noreferrer" style={{ color: '#1D4ED8', fontWeight: 'bold' }}>GAS 편집기</a> 접속 → 프로젝트 열기</li>
-              <li>로컬 파일 <code style={{ background: '#FDE68A', padding: '0 4px', borderRadius: '3px' }}>gas_backend/Code.gs</code> 전체 내용 복사 → GAS 편집기에 전체 교체 붙여넣기 → 저장(Ctrl+S)</li>
-              <li>상단 메뉴 <strong>배포 → 배포 관리</strong> 클릭 → 기존 배포 선택 → <strong>연필(✏️) 아이콘 → 새 버전 → 배포</strong></li>
-              <li>✅ 배포 완료! 이 페이지를 새로고침하면 경고가 사라집니다</li>
-            </ol>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', marginBottom: '1rem' }}>
+            <AlertTriangle size={24} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <strong style={{ color: '#92400E', fontSize: '1rem', display: 'block', marginBottom: '0.4rem' }}>
+                ⚠️ GAS URL 업데이트가 필요합니다
+              </strong>
+              <p style={{ margin: 0, color: '#78350F', fontSize: '0.875rem', lineHeight: '1.6' }}>
+                GAS를 <strong>새 배포</strong>하면 URL이 바뀝니다. 아래에 새 배포 URL을 붙여넣고 저장하세요.
+              </p>
+            </div>
+            <button onClick={() => setGasOutdated(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', flexShrink: 0, fontSize: '1.3rem', marginLeft: 'auto' }}>✕</button>
           </div>
-          <button onClick={() => setGasOutdated(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', flexShrink: 0, fontSize: '1.4rem', lineHeight: 1 }}>✕</button>
+
+          {/* ★ URL 입력창 */}
+          <div style={{ background: 'rgba(255,255,255,0.7)', borderRadius: '8px', padding: '1rem' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', color: '#92400E', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+              새 GAS 배포 URL (GAS 편집기 → 배포 → 배포 관리에서 URL 복사)
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                type="text"
+                value={gasUrlInput}
+                onChange={e => { setGasUrlInput(e.target.value); setUrlSaved(false); }}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="input-field"
+                style={{ flex: 1, fontSize: '0.82rem', marginBottom: 0, padding: '0.6rem 0.75rem' }}
+              />
+              <button
+                onClick={saveGasUrl}
+                className="btn"
+                style={{
+                  flexShrink: 0, padding: '0.6rem 1.25rem',
+                  background: urlSaved ? '#10B981' : '#D97706',
+                  display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', fontWeight: 'bold'
+                }}
+              >
+                {urlSaved ? <><Check size={15} /> 저장됨!</> : '저장 후 재확인'}
+              </button>
+            </div>
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: '#78350F' }}>
+              💡 GAS 편집기 상단 <strong>배포 → 배포 관리</strong> → 기존 배포 선택 → URL 복사
+            </p>
+          </div>
         </div>
       )}
 
@@ -283,7 +323,6 @@ export default function Dashboard() {
                             disabled={!!isActing}
                             className="btn btn-secondary"
                             style={{ flex: 1, fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                            title="구글 챗으로 테스트 메시지 발송"
                           >
                             {isActing === 'test' ? <RefreshCw size={14} className="spin-icon" /> : <Wifi size={14} />}
                             {isActing === 'test' ? '발송 중...' : '웹훅 테스트'}
@@ -293,7 +332,6 @@ export default function Dashboard() {
                             disabled={!!isActing}
                             className="btn"
                             style={{ flex: 1, fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', background: '#10B981' }}
-                            title="지금 즉시 새 응답을 확인하고 발송"
                           >
                             {isActing === 'check' ? <RefreshCw size={14} className="spin-icon" /> : <Zap size={14} />}
                             {isActing === 'check' ? '확인 중...' : '지금 즉시 확인'}
@@ -328,14 +366,14 @@ export default function Dashboard() {
                 <Bell size={48} style={{ margin: '0 auto 1rem', opacity: 0.2 }} />
                 <p>
                   {gasOutdated
-                    ? <strong style={{ color: '#B45309' }}>위 노란 안내를 따라 GAS를 업데이트해주세요.</strong>
-                    : '아직 발송된 알람 기록이 없습니다.\n웹훅 테스트 버튼으로 연결을 확인해보세요.'}
+                    ? <strong style={{ color: '#B45309' }}>위 노란 안내에서 GAS URL을 업데이트해주세요.</strong>
+                    : '아직 발송된 알람 기록이 없습니다.'}
                 </p>
               </div>
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {logs.map((log, idx) => {
-                  const isSuccess = log.message.includes('성공') || log.message.includes('테스트');
+                  const isSuccess = log.message.includes('성공');
                   const isError   = log.message.includes('실패') || log.message.includes('오류');
                   return (
                     <li key={idx} style={{
