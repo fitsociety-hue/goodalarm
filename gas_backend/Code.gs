@@ -1,10 +1,13 @@
 // =============================================================
-//  Good Alarm - Backend v5.3 (Google Apps Script)
+//  Good Alarm - Backend v5.4 (Google Apps Script)
 //  ✅ onFormSubmit 즉시 알람 (폼 제출 순간 발송)
 //  ✅ 1분 폴링 백업 (즉시 알람 누락 방지)
 //  ✅ 트리거 완전 자동화 - 매 폴링마다 자동 검증·재설치
-//  ✅ 빈 행 처리 개선 / 로깅 강화
-//  ✅ v5.3: GID 파싱 정규식 수정 / 시트 비교 로직 개선
+//  ✅ v5.4 핵심 수정:
+//     [Bug1] onFormSubmitHandler에서 ConfigsV2를 못 찾는 버그 수정
+//            → BACKEND_SS_ID를 Script Properties에 저장, openById() 사용
+//     [Bug2] 시트 초기화 후 폴링이 데이터를 건너뛰는 버그 수정
+//            → totalRows < lastChecked 시 자동 리셋
 //  ─────────────────────────────────────────
 //  [GAS 배포 방법]
 //  1. 이 코드 전체를 GAS 편집기에 붙여넣기 → 저장(Ctrl+S)
@@ -12,11 +15,44 @@
 //  3. 완료! (모든 트리거 자동 설치)
 // =============================================================
 
-const GAS_VERSION = 53;  // 5.3
+const GAS_VERSION = 54; // 5.4
+
+// =============================================================
+//  ★★★ 핵심 유틸: 백엔드 스프레드시트 접근 (크로스-시트 안전)
+//  onFormSubmitHandler는 타겟 시트 컨텍스트에서 실행되므로
+//  getActiveSpreadsheet()가 타겟 시트를 반환 → ConfigsV2 못 찾음
+//  → Script Properties에 BACKEND_SS_ID 저장 후 openById() 사용
+// =============================================================
+function getBackendSs() {
+  const props = PropertiesService.getScriptProperties();
+  const id    = props.getProperty('BACKEND_SS_ID');
+  if (id) {
+    try { return SpreadsheetApp.openById(id); } catch (ex) {
+      Logger.log('[getBackendSs] openById 실패, fallback: ' + ex.message);
+    }
+  }
+  // fallback: getActiveSpreadsheet (doPost/doGet/시간 트리거 컨텍스트에서는 정상)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss) {
+    props.setProperty('BACKEND_SS_ID', ss.getId());
+    Logger.log('[getBackendSs] BACKEND_SS_ID 저장: ' + ss.getId());
+  }
+  return ss;
+}
+
+function getSheet(name) {
+  const ss = getBackendSs();
+  return ss ? ss.getSheetByName(name) : null;
+}
 
 // ── DB 시트 초기화 ──────────────────────────────────────────
 function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // ★ 백엔드 SS ID 저장 (onFormSubmitHandler 크로스-시트 버그 수정 핵심)
+  PropertiesService.getScriptProperties().setProperty('BACKEND_SS_ID', ss.getId());
+  Logger.log('[setup] BACKEND_SS_ID 저장 완료: ' + ss.getId());
+
   const schemas = {
     'Users':     ['userId', 'name', 'team', 'password'],
     'ConfigsV2': ['configId', 'userId', 'name', 'sheetUrl', 'chatWebhook',
@@ -35,7 +71,7 @@ function setup() {
   }
 }
 
-// ── 폴링 트리거만 빠르게 확인 (doPost마다 호출, 5분 캐시) ────
+// ── 폴링 트리거 확인 (doPost마다 호출, 5분 캐시) ─────────────
 function ensurePollingTrigger() {
   try {
     const props = PropertiesService.getScriptProperties();
@@ -66,7 +102,7 @@ function installFormTrigger(sheetUrl) {
       t.getTriggerSourceId()  === ssId
     );
     if (existing) {
-      Logger.log(`[installFormTrigger] 기존 트리거 재사용: ${existing.getUniqueId()}`);
+      Logger.log(`[installFormTrigger] 기존 트리거 재사용: ${existing.getUniqueId()} (ssId=${ssId})`);
       return existing.getUniqueId();
     }
 
@@ -96,7 +132,7 @@ function doPost(e) {
       return jsonResponse({ success: false, message: 'No payload' });
     }
     const data = JSON.parse(e.postData.contents);
-    setup();
+    setup();            // ★ setup()이 BACKEND_SS_ID를 저장함
     ensurePollingTrigger();
 
     const routes = {
@@ -197,7 +233,6 @@ function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDa
   sheet.appendRow([configId, userId, name, sheetUrl, chatWebhook,
                    lastCheckedRow, startDate || '', endDate || '',
                    weekdaysOnly || false, formTriggerId]);
-  // 다음 폴링에서 트리거 재검증 강제
   PropertiesService.getScriptProperties().setProperty('pollingChecked', '0');
   return { success: true, message: `설정이 추가되었습니다. ⚡ 즉시 알람이 활성화됩니다.` };
 }
@@ -311,7 +346,14 @@ function handleRunCheckNow({ userId, configId }) {
     } catch (ex) {
       return { success: false, message: `스프레드시트 접근 오류: ${ex.message}` };
     }
-    const startRow = Math.max(lastCheckedRow, 1); // 헤더(row0) 건너뜀
+
+    // ★ 시트 초기화 감지: lastCheckedRow > totalRows → 리셋
+    if (lastCheckedRow >= totalRows) {
+      sheet.getRange(i + 1, 6).setValue(0);
+      lastCheckedRow = 0;
+    }
+
+    const startRow = Math.max(lastCheckedRow, 1);
     if (totalRows <= startRow) {
       return { success: true, message: `새로운 데이터 없음. (총 ${totalRows}행, 마지막 확인 ${lastCheckedRow}행)` };
     }
@@ -335,7 +377,9 @@ function handleRunCheckNow({ userId, configId }) {
 
 // =============================================================
 //  ★ 폼 제출 즉시 알람 핸들러
-//  v5.3 개선: GID 파싱 정규식 수정, 시트 비교 로직 강화
+//  v5.4 핵심 수정:
+//  - getSheet()가 BACKEND_SS_ID(Script Properties)로 백엔드 시트에 접근
+//    → 폼 제출 트리거 컨텍스트에서도 ConfigsV2를 올바르게 찾음
 // =============================================================
 function onFormSubmitHandler(e) {
   Logger.log('[onFormSubmitHandler] ⚡ 폼 제출 감지!');
@@ -344,12 +388,16 @@ function onFormSubmitHandler(e) {
     const srcSheet     = e.range.getSheet();
     const submittedRow = e.range.getRow();
     const ssId         = ss.getId();
-    const srcSheetId   = srcSheet.getSheetId(); // 정수형 GID
+    const srcSheetId   = srcSheet.getSheetId();
 
     Logger.log(`[onFormSubmitHandler] ssId=${ssId}, srcSheetId=${srcSheetId}, row=${submittedRow}`);
 
+    // ★ v5.4 핵심: getSheet()는 BACKEND_SS_ID로 백엔드에 접근
     const cfgSheet = getSheet('ConfigsV2');
-    if (!cfgSheet) { Logger.log('[onFormSubmitHandler] ConfigsV2 없음'); return; }
+    if (!cfgSheet) {
+      Logger.log('[onFormSubmitHandler] ❌ ConfigsV2 없음! BACKEND_SS_ID 미설정 가능성 → setup() 실행 필요');
+      return;
+    }
 
     const cfgData  = cfgSheet.getDataRange().getValues();
     const TZ       = 'Asia/Seoul';
@@ -370,10 +418,10 @@ function onFormSubmitHandler(e) {
 
       Logger.log(`[onFormSubmitHandler] 설정[${i}] ${configName}: url=${sheetUrl ? '있음' : '없음'}, webhook=${chatWebhook ? '있음' : '없음'}`);
 
-      if (!sheetUrl || !chatWebhook) { Logger.log(`  → URL/웹훅 없음, 건너뜀`); continue; }
+      if (!sheetUrl || !chatWebhook) { Logger.log('  → URL/웹훅 없음, 건너뜀'); continue; }
       if (startDate && todayStr < startDate) { Logger.log(`  → 시작일 미도래(${startDate}), 건너뜀`); continue; }
       if (endDate   && todayStr > endDate)   { Logger.log(`  → 종료일 초과(${endDate}), 건너뜀`); continue; }
-      if (weekdaysOnly && (day === 0 || day === 6)) { Logger.log(`  → 주말 제외, 건너뜀`); continue; }
+      if (weekdaysOnly && (day === 0 || day === 6)) { Logger.log('  → 주말 제외, 건너뜀'); continue; }
 
       // ── 스프레드시트 ID 비교 ─────────────────────────────────
       try {
@@ -383,21 +431,20 @@ function onFormSubmitHandler(e) {
           continue;
         }
 
-        // GID 비교: URL에서 gid 추출 (edit?gid=, #gid=, &gid= 모두 지원)
-        // ★ 수정: 모든 gid= 패턴을 캡처하여 마지막 값 사용
+        // GID 비교: ?gid=, #gid=, &gid= 모두 지원, 마지막 값 사용
         const gidMatches = [...sheetUrl.matchAll(/[?&#]gid=([0-9]+)/g)];
         if (gidMatches.length > 0) {
-          // URL에 gid가 명시된 경우 → 해당 시트만 처리
           const cfgGid = parseInt(gidMatches[gidMatches.length - 1][1], 10);
           if (srcSheetId !== cfgGid) {
             Logger.log(`  → GID 불일치 (설정=${cfgGid}, 폼=${srcSheetId}), 건너뜀`);
             continue;
           }
         }
-        // GID 없으면 첫 번째 시트(폼 응답 기본 위치)로 간주하여 통과
         Logger.log(`  → 시트 매칭 성공! GID=${srcSheetId}`);
       } catch (ex) {
-        Logger.log(`[onFormSubmitHandler] URL 비교 오류 [${configName}]: ${ex.message}`);
+        const errMsg = `[onFormSubmitHandler] URL 비교 오류 [${configName}]: ${ex.message}`;
+        Logger.log(errMsg);
+        appendLog(userId, `❌ ${errMsg}`);
         continue;
       }
 
@@ -409,7 +456,7 @@ function onFormSubmitHandler(e) {
       Logger.log(`  → 헤더 수: ${headers.length}, 데이터: ${rowData.join(' | ')}`);
 
       if (!rowData || rowData.every(c => String(c).trim() === '')) {
-        Logger.log(`  → 빈 행, 건너뜀`);
+        Logger.log('  → 빈 행, 건너뜀');
         continue;
       }
 
@@ -430,11 +477,10 @@ function onFormSubmitHandler(e) {
 
 // =============================================================
 //  ★ 1분 폴링 백업 + 폼 트리거 자동 검증
-//  - 매 1분마다 실행되어 누락된 응답이 있으면 발송
-//  - 동시에 onFormSubmit 트리거가 유효한지 검증·재설치
+//  v5.4 수정: 시트 초기화 감지 (totalRows < lastChecked → 리셋)
 // =============================================================
 function checkAndSendAlarms() {
-  Logger.log('[polling] 시작');
+  Logger.log('[polling] 시작 v5.4');
   const sheet = getSheet('ConfigsV2');
   if (!sheet || sheet.getLastRow() < 2) { Logger.log('[polling] 설정 없음'); return; }
 
@@ -484,24 +530,32 @@ function checkAndSendAlarms() {
       if (weekdaysOnly && day === 1 && hour < 9)    continue;
 
       const ds        = getTargetSheet(sheetUrl);
-      const totalRows = ds.getLastRow(); // 1-indexed: 실제 데이터 행 수
+      const totalRows = ds.getLastRow(); // 1-indexed
 
-      // ★ lastChecked는 '마지막으로 처리한 행 번호(1-indexed)'
-      // totalRows > lastChecked 이면 새 행이 있음
+      // ★ v5.4 핵심 수정: 시트 초기화 감지
+      // 시트가 초기화되면 totalRows < lastChecked 상황 발생
+      // → lastChecked를 0으로 리셋하여 새 데이터 감지
+      if (totalRows < lastChecked) {
+        Logger.log(`[polling] [${configName}] ⚠️ 시트 초기화 감지! 총 ${totalRows}행 < 마지막처리 ${lastChecked}행 → lastCheckedRow 리셋`);
+        appendLog(userId, `[${configName}] ⚠️ 시트 초기화 감지 → lastCheckedRow 리셋 (${lastChecked} → 0)`);
+        sheet.getRange(i + 1, 6).setValue(0);
+        lastChecked = 0;
+      }
+
       if (totalRows <= lastChecked) {
         Logger.log(`[polling] [${configName}] 새 행 없음 (총 ${totalRows}행, 마지막처리 ${lastChecked}행)`);
         continue;
       }
 
       Logger.log(`[polling] [${configName}] 새 행 발견! (${lastChecked + 1}~${totalRows}행 처리 예정)`);
-      const targetData = ds.getDataRange().getValues(); // 0-indexed 배열
+      const targetData = ds.getDataRange().getValues(); // 0-indexed
       const headers    = targetData[0] || [];
       let sentCount    = 0;
 
-      // targetData[0] = 헤더(1행), targetData[1] = 2행, ...
-      // lastChecked = N이면 N행까지 처리됨 → N번 인덱스(=N+1행)부터 시작
-      // 단, lastChecked=0이면 헤더(0번)를 건너뛰어 1번 인덱스부터 시작
-      const startIdx = Math.max(lastChecked, 1); // 최소 1 (헤더=0 건너뜀)
+      // targetData[0]=헤더(row1), targetData[1]=row2, ...
+      // lastChecked=N → N행까지 처리됨 → N번 인덱스(row N+1)부터 시작
+      // lastChecked=0 → 헤더(0번) 건너뛰어 1번(row2)부터 시작
+      const startIdx = Math.max(lastChecked, 1);
 
       for (let r = startIdx; r < targetData.length; r++) {
         const rowData = targetData[r];
@@ -528,10 +582,12 @@ function checkAndSendAlarms() {
 }
 
 // =============================================================
-//  수동 전체 트리거 재설치 (에디터에서 실행 가능, 필수 아님)
+//  수동 전체 트리거 재설치 + BACKEND_SS_ID 저장
+//  ★ v5.4: 배포 후 반드시 이 함수를 GAS 에디터에서 실행하세요!
 // =============================================================
 function reinstallAllTriggers() {
-  setup();
+  setup(); // ★ BACKEND_SS_ID 저장 포함
+
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'checkAndSendAlarms') ScriptApp.deleteTrigger(t);
   });
@@ -552,6 +608,8 @@ function reinstallAllTriggers() {
       Logger.log(`✅ [${data[i][2]}] 폼 트리거: ${newId || '실패'}`);
     }
   }
+  Logger.log('✅ reinstallAllTriggers 완료. BACKEND_SS_ID: ' +
+    PropertiesService.getScriptProperties().getProperty('BACKEND_SS_ID'));
 }
 function setupTrigger() { reinstallAllTriggers(); }
 
@@ -559,8 +617,12 @@ function setupTrigger() { reinstallAllTriggers(); }
 //  진단 함수 (에디터에서 실행하여 상태 확인)
 // =============================================================
 function diagnosisAll() {
-  Logger.log('=== Good Alarm v5.3 진단 ===');
+  Logger.log('=== Good Alarm v5.4 진단 ===');
   Logger.log(`시각: ${Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss')}`);
+
+  const props        = PropertiesService.getScriptProperties();
+  const backendSsId  = props.getProperty('BACKEND_SS_ID') || '미설정!';
+  Logger.log(`\n▶ BACKEND_SS_ID: ${backendSsId}`);
 
   const triggers = ScriptApp.getProjectTriggers();
   const polling  = triggers.filter(t => t.getHandlerFunction() === 'checkAndSendAlarms');
@@ -571,7 +633,7 @@ function diagnosisAll() {
   formTrig.forEach((t, i) => Logger.log(`  [${i}] sourceId=${t.getTriggerSourceId()} / uniqueId=${t.getUniqueId()}`));
 
   const sheet = getSheet('ConfigsV2');
-  if (!sheet) { Logger.log('ConfigsV2 없음!'); return; }
+  if (!sheet) { Logger.log('❌ ConfigsV2 없음! BACKEND_SS_ID 확인 필요'); return; }
   const data = sheet.getDataRange().getValues();
   Logger.log(`\n▶ 설정: ${data.length - 1}개`);
 
@@ -584,24 +646,25 @@ function diagnosisAll() {
     const triggerActive  = triggerId && triggers.some(t => t.getUniqueId() === triggerId);
 
     Logger.log(`\n--- [${i}] ${configName} ---`);
-    Logger.log(`  webhook:       ${chatWebhook ? '✅ 설정됨' : '❌ 없음'}`);
+    Logger.log(`  webhook:        ${chatWebhook ? '✅ 설정됨' : '❌ 없음'}`);
     Logger.log(`  lastCheckedRow: ${lastCheckedRow}`);
-    Logger.log(`  triggerId:     ${triggerId || '없음'}`);
+    Logger.log(`  triggerId:      ${triggerId || '없음'}`);
     Logger.log(`  즉시알람 트리거: ${triggerActive ? '✅ 활성' : '⚠️ 없음 → 다음 폴링 시 자동 설치됨'}`);
     if (sheetUrl) {
       try {
         const cfgSs    = SpreadsheetApp.openByUrl(sheetUrl);
         const ds        = getTargetSheet(sheetUrl);
         const totalRows = ds.getLastRow();
-        Logger.log(`  ssId:          ${cfgSs.getId()}`);
-        Logger.log(`  sheetGid:      ${ds.getSheetId()}`);
-        Logger.log(`  시트 현재:     ${totalRows}행, 미처리: ${Math.max(0, totalRows - lastCheckedRow)}행`);
-
-        // GID 파싱 검증
+        Logger.log(`  ssId:           ${cfgSs.getId()}`);
+        Logger.log(`  sheetGid:       ${ds.getSheetId()}`);
+        Logger.log(`  시트 현재:      ${totalRows}행, 미처리: ${Math.max(0, totalRows - lastCheckedRow)}행`);
+        if (totalRows < lastCheckedRow) {
+          Logger.log(`  ⚠️ 시트 초기화 감지! totalRows(${totalRows}) < lastChecked(${lastCheckedRow}) → 다음 폴링 시 자동 리셋`);
+        }
         const gidMatches = [...sheetUrl.matchAll(/[?&#]gid=([0-9]+)/g)];
         if (gidMatches.length > 0) {
           const parsedGid = parseInt(gidMatches[gidMatches.length - 1][1], 10);
-          Logger.log(`  URL GID:       ${parsedGid} (시트 GID와 ${parsedGid === ds.getSheetId() ? '✅ 일치' : '❌ 불일치!'})`);
+          Logger.log(`  URL GID:        ${parsedGid} (시트 GID와 ${parsedGid === ds.getSheetId() ? '✅ 일치' : '❌ 불일치!'})`);
         }
       } catch (ex) { Logger.log(`  시트 접근 오류: ${ex.message}`); }
     }
@@ -612,15 +675,12 @@ function diagnosisAll() {
 // =============================================================
 //  공통 유틸
 // =============================================================
-function getSheet(name) {
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-}
-
 function getTargetSheet(url) {
   const ss    = SpreadsheetApp.openByUrl(url);
-  const match = url.match(/[#&?]gid=([0-9]+)/);
-  if (match) {
-    const gid   = parseInt(match[1], 10);
+  // gid 추출: 모든 패턴 지원, 마지막 값 사용
+  const gidMatches = [...url.matchAll(/[?&#]gid=([0-9]+)/g)];
+  if (gidMatches.length > 0) {
+    const gid   = parseInt(gidMatches[gidMatches.length - 1][1], 10);
     const found = ss.getSheets().find(s => s.getSheetId() === gid);
     if (found) return found;
   }
@@ -666,7 +726,7 @@ function fmtDate(val, TZ) {
 }
 
 function doGet() {
-  setup();
+  setup(); // ★ BACKEND_SS_ID 저장 포함
   ensurePollingTrigger();
   return ContentService
     .createTextOutput(`Good Alarm Backend V${GAS_VERSION} Active.`)
