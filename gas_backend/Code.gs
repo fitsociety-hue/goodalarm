@@ -138,8 +138,8 @@ function handleAddConfig({ userId, name, sheetUrl, chatWebhook, startDate, endDa
   let lastCheckedRow = 0;
   if(sheetUrl) {
     try {
-      const targetSs = SpreadsheetApp.openByUrl(sheetUrl);
-      lastCheckedRow = targetSs.getSheets()[0].getLastRow();
+      const dataSheet = getTargetSheet(sheetUrl);
+      lastCheckedRow = dataSheet.getLastRow();
     } catch(e) {
       return { success: false, message: '해당 스프레드시트에 접근할 수 없거나 URL이 잘못되었습니다.' };
     }
@@ -158,15 +158,12 @@ function handleUpdateConfig({ userId, configId, name, sheetUrl, chatWebhook, sta
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === configId && data[i][1] === userId) {
       
-      // Update check row if URL changed. Minimal approach: just keep old or recalculate safely.
       let lastCheckedRow = data[i][5];
-      if (data[i][3] !== sheetUrl) {
-        try {
-          const targetSs = SpreadsheetApp.openByUrl(sheetUrl);
-          lastCheckedRow = targetSs.getSheets()[0].getLastRow();
-        } catch(e) {
-          return { success: false, message: '새로운 시트 URL에 접근할 수 없습니다.' };
-        }
+      try {
+        const dataSheet = getTargetSheet(sheetUrl);
+        lastCheckedRow = dataSheet.getLastRow();
+      } catch(e) {
+        return { success: false, message: '시트 URL에 접근할 수 없거나 권한이 없습니다.' };
       }
 
       sheet.getRange(i + 1, 3).setValue(name);
@@ -293,12 +290,16 @@ function checkAndSendAlarms() {
         if (currentDay === 1 && currentHour < 9) continue;  // Monday before 9 AM
       }
 
-      const targetSs = SpreadsheetApp.openByUrl(sheetUrl);
-      const dataSheet = targetSs.getSheets()[0];
+      const dataSheet = getTargetSheet(sheetUrl);
       const targetData = dataSheet.getDataRange().getValues();
       if (targetData.length === 0) continue;
       const headers = targetData[0];
       const totalRows = targetData.length;
+
+      if (totalRows < lastCheckedRow) {
+        configSheet.getRange(i + 1, 6).setValue(totalRows);
+        lastCheckedRow = totalRows;
+      }
 
       if (totalRows > lastCheckedRow) {
         let newEntriesCount = 0;
@@ -306,7 +307,7 @@ function checkAndSendAlarms() {
           const rowData = targetData[r];
           
           // Check if row is completely empty
-          const isRowEmpty = rowData.slice(1).every(cell => String(cell).trim() === "");
+          const isRowEmpty = rowData.every(cell => String(cell).trim() === "");
           if (isRowEmpty) continue;
 
           let msgLines = [`*[${configName || '새 알림'}]* 새로운 응답이 등록되었습니다.`, ""];
@@ -355,6 +356,21 @@ function sendToChatWebhook(url, text) {
   } catch (e) {
     return false;
   }
+}
+
+function getTargetSheet(url) {
+  const ss = SpreadsheetApp.openByUrl(url);
+  const match = url.match(/[#&?]gid=([0-9]+)/);
+  if (match) {
+    const gid = parseInt(match[1], 10);
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+        if (sheets[i].getSheetId() === gid) {
+            return sheets[i];
+        }
+    }
+  }
+  return ss.getSheets()[0];
 }
 
 function doGet(e) {
