@@ -14,7 +14,7 @@
 //  4. 대시보드에서 새 배포 URL 입력 → 저장
 // =============================================================
 
-const GAS_VERSION = 56; // 5.6
+const GAS_VERSION = 57; // 5.7
 
 // =============================================================
 //  백엔드 스프레드시트 안전 접근
@@ -127,6 +127,7 @@ function doPost(e) {
       deleteConfig: () => handleDeleteConfig(data),
       getLogs:      () => handleGetLogs(data),
       testWebhook:  () => handleTestWebhook(data),
+      forceRescan:  () => handleForceRescan(data),
       checkVersion: () => ({ success: true, version: GAS_VERSION, message: `Good Alarm Backend V${GAS_VERSION}` }),
     };
 
@@ -271,6 +272,31 @@ function handleTestWebhook({ userId, configId }) {
     const ok  = sendWebhook(chatWebhook, `✅ [Good Alarm 테스트]\n*${configName}* 웹훅 연결 성공!\n시각: ${now}`);
     appendLog(userId, ok ? `[테스트] [${configName}] 웹훅 연결 성공 ✅` : `[테스트] [${configName}] 웹훅 전송 실패 ❌`);
     return { success: ok, message: ok ? '구글 챗으로 테스트 메시지를 발송했습니다!' : '웹훅 전송 실패. URL을 확인해주세요.' };
+  }
+  return { success: false, message: '설정을 찾을 수 없습니다.' };
+}
+
+// =============================================================
+//  강제 스캔 (미수신 알람 재발송)
+// =============================================================
+function handleForceRescan({ userId, configId }) {
+  const sheet = getSheet('ConfigsV2');
+  if (!sheet) return { success: false, message: 'ConfigsV2 없음' };
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() !== String(configId).trim()) continue;
+    if (String(data[i][1]).trim() !== String(userId).trim())   continue;
+    
+    let currentLast = parseInt(data[i][5]) || 0;
+    if (currentLast > 0) {
+      // 마지막 1건을 다시 스캔하도록 1 감소시킵니다.
+      currentLast = currentLast - 1;
+      sheet.getRange(i + 1, 6).setValue(currentLast);
+      appendLog(userId, `[${data[i][2]}] 🔄 강제 스캔 예약됨. 1분 내에 최근 1건을 재발송합니다.`);
+      return { success: true, message: '강제 스캔 예약 성공! 1분 내에 최근 누락된 1건을 스캔하여 재발송합니다.' };
+    } else {
+      return { success: false, message: '스프레드시트에 재발송할 데이터가 존재하지 않거나 알 수 없습니다.' };
+    }
   }
   return { success: false, message: '설정을 찾을 수 없습니다.' };
 }
