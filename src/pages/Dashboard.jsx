@@ -312,8 +312,10 @@ export default function Dashboard() {
                             <span>알람 범위: {conf.weekdaysOnly ? '평일 전용' : '상시 (주야/휴일 무관)'}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Zap size={13} color='#10B981' />
-                            <span style={{ color: '#065F46', fontWeight: 600 }}>⚡ 자동 알람 활성화됨</span>
+                            <Zap size={13} color={conf.formTriggerId ? '#10B981' : '#F59E0B'} />
+                            <span style={{ color: conf.formTriggerId ? '#065F46' : '#92400E', fontWeight: 600 }}>
+                              {conf.formTriggerId ? '⚡ 즉시 알람 활성화됨' : '⚠️ 즉시 알람 미설정 (GAS 재배포 후 reinstallAllTriggers 실행 필요)'}
+                            </span>
                           </div>
                         </div>
 
