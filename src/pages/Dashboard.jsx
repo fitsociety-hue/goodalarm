@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, runCheckNowApi, checkGasVersionApi, getBaseUrl, setBaseUrl } from '../services/api';
-import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, Zap, Wifi, AlertTriangle, Check } from 'lucide-react';
+import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, runCheckNowApi, forceRescanApi, checkGasVersionApi, getBaseUrl, setBaseUrl, GAS_REQUIRED_VERSION } from '../services/api';
+import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, Zap, Wifi, AlertTriangle, Check, RotateCcw } from 'lucide-react';
 
-const GAS_REQUIRED_VERSION = 4;
+// GAS_REQUIRED_VERSION은 api.js에서 import
+
 
 export default function Dashboard() {
   const [user, setUser]           = useState(null);
@@ -133,6 +134,27 @@ export default function Dashboard() {
     }
   };
 
+  /* ─── ★ v5.5 미수신 재발송 (forceRescan) ─── */
+  const handleForceRescan = async (conf) => {
+    setActionLoading(prev => ({ ...prev, [conf.configId]: 'rescan' }));
+    try {
+      const res = await forceRescanApi(user.userId, conf.configId);
+      if (isOldGasResponse(res)) {
+        setGasOutdated(true);
+        showMessage('error', '⚠️ GAS v5.5 배포 필요! 아래 안내를 따라주세요.');
+      } else {
+        showMessage(res?.success ? 'success' : 'error',
+          res?.message || (res?.success ? '재스캔 완료!' : '재스캔 실패'));
+        if (res?.success) loadData(user.userId);
+      }
+    } catch {
+      showMessage('error', '서버 통신 오류');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [conf.configId]: null }));
+    }
+  };
+
+
   const requestDeleteConfig = (conf) => { setTargetToDelete(conf); setIsDeleteModalOpen(true); };
 
   const deleteConfig = async () => {
@@ -167,60 +189,53 @@ export default function Dashboard() {
         <button onClick={logout} className="btn btn-secondary"><LogOut size={18} /> 로그아웃</button>
       </header>
 
-      {/* ── GAS URL 업데이트 배너 (구버전 감지 시) ── */}
+      {/* ── GAS 배포 안내 배너 */}
       {gasOutdated && (
         <div style={{
           background: 'linear-gradient(135deg, #FEF3C7, #FDE68A)',
-          border: '2px solid #F59E0B',
-          borderRadius: '12px',
-          padding: '1.25rem 1.5rem',
-          marginBottom: '1.5rem',
+          border: '2px solid #F59E0B', borderRadius: '12px',
+          padding: '1.25rem 1.5rem', marginBottom: '1.5rem',
         }}>
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', marginBottom: '1rem' }}>
             <AlertTriangle size={24} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
             <div>
               <strong style={{ color: '#92400E', fontSize: '1rem', display: 'block', marginBottom: '0.4rem' }}>
-                ⚠️ GAS URL 업데이트가 필요합니다
+                ⚠️ GAS v5.5 배포 필요
               </strong>
-              <p style={{ margin: 0, color: '#78350F', fontSize: '0.875rem', lineHeight: '1.6' }}>
-                GAS를 <strong>새 배포</strong>하면 URL이 바뀝니다. 아래에 새 배포 URL을 붙여넣고 저장하세요.
+              <p style={{ margin: 0, color: '#78350F', fontSize: '0.875rem', lineHeight: '1.7' }}>
+                알람이 동작하지 않으면 아래 단계를 따라 GAS를 업데이트하세요.<br />
+                <strong>①</strong> GAS 편집기에 Code.gs 전체 붙여넣기 → Ctrl+S 저장<br />
+                <strong>②</strong> 배포 → 배포 관리 → ✏️ → &quot;새 버전&quot; 선택 → 배포 → URL 복사<br />
+                <strong>③</strong> GAS 에디터에서 <code style={{background:'#FDE68A', padding:'0 4px', borderRadius:'3px'}}>reinstallAllTriggers</code> 함수 실행<br />
+                <strong>④</strong> 아래 입력란에 새 배포 URL 입력 → 저장
               </p>
             </div>
             <button onClick={() => setGasOutdated(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', flexShrink: 0, fontSize: '1.3rem', marginLeft: 'auto' }}>✕</button>
           </div>
-
-          {/* ★ URL 입력창 */}
           <div style={{ background: 'rgba(255,255,255,0.7)', borderRadius: '8px', padding: '1rem' }}>
             <label style={{ display: 'block', fontWeight: 'bold', color: '#92400E', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-              새 GAS 배포 URL (GAS 편집기 → 배포 → 배포 관리에서 URL 복사)
+              새 GAS 배포 URL
             </label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <input
-                type="text"
-                value={gasUrlInput}
+                type="text" value={gasUrlInput}
                 onChange={e => { setGasUrlInput(e.target.value); setUrlSaved(false); }}
                 placeholder="https://script.google.com/macros/s/.../exec"
                 className="input-field"
                 style={{ flex: 1, fontSize: '0.82rem', marginBottom: 0, padding: '0.6rem 0.75rem' }}
               />
-              <button
-                onClick={saveGasUrl}
-                className="btn"
-                style={{
-                  flexShrink: 0, padding: '0.6rem 1.25rem',
-                  background: urlSaved ? '#10B981' : '#D97706',
-                  display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', fontWeight: 'bold'
-                }}
-              >
+              <button onClick={saveGasUrl} className="btn" style={{
+                flexShrink: 0, padding: '0.6rem 1.25rem',
+                background: urlSaved ? '#10B981' : '#D97706',
+                display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', fontWeight: 'bold'
+              }}>
                 {urlSaved ? <><Check size={15} /> 저장됨!</> : '저장 후 재확인'}
               </button>
             </div>
-            <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: '#78350F' }}>
-              💡 GAS 편집기 상단 <strong>배포 → 배포 관리</strong> → 기존 배포 선택 → URL 복사
-            </p>
           </div>
         </div>
       )}
+
 
       {/* ── 토스트 메시지 ── */}
       {message.text && (
@@ -317,12 +332,12 @@ export default function Dashboard() {
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                           <button
                             onClick={() => handleTestWebhook(conf)}
                             disabled={!!isActing}
                             className="btn btn-secondary"
-                            style={{ flex: 1, fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+                            style={{ flex: 1, minWidth: '90px', fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
                           >
                             {isActing === 'test' ? <RefreshCw size={14} className="spin-icon" /> : <Wifi size={14} />}
                             {isActing === 'test' ? '발송 중...' : '웹훅 테스트'}
@@ -331,12 +346,23 @@ export default function Dashboard() {
                             onClick={() => handleRunCheckNow(conf)}
                             disabled={!!isActing}
                             className="btn"
-                            style={{ flex: 1, fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', background: '#10B981' }}
+                            style={{ flex: 1, minWidth: '90px', fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', background: '#10B981' }}
                           >
                             {isActing === 'check' ? <RefreshCw size={14} className="spin-icon" /> : <Zap size={14} />}
                             {isActing === 'check' ? '확인 중...' : '지금 즉시 확인'}
                           </button>
+                          <button
+                            onClick={() => handleForceRescan(conf)}
+                            disabled={!!isActing}
+                            title="시트 전체를 재스캔하여 누락된 모든 알람을 지금 발송합니다"
+                            className="btn"
+                            style={{ flex: '0 0 auto', fontSize: '0.8rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', background: '#6366F1' }}
+                          >
+                            {isActing === 'rescan' ? <RefreshCw size={14} className="spin-icon" /> : <RotateCcw size={14} />}
+                            {isActing === 'rescan' ? '재스캔...' : '미수신 재발송'}
+                          </button>
                         </div>
+
                       </li>
                     );
                   })}

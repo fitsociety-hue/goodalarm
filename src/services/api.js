@@ -1,6 +1,8 @@
 // GAS URL은 localStorage에서 동적으로 읽음 → 배포 URL이 바뀌어도 앱에서 직접 업데이트 가능
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbw4yMjgzqtWTzEoYKeIaVZyLLfqDSFh4VjwhTQ3MTDJ6k9nTBrI_DJInDszVRR9OF0buQ/exec';
 
+const GAS_REQUIRED_VERSION = 55; // v5.5 이상 필요
+
 export const getBaseUrl = () => {
   return localStorage.getItem('goodalarm_gas_url') || DEFAULT_URL;
 };
@@ -35,11 +37,13 @@ export const apiCall = async (payload) => {
 
 export const loginApi    = (name, team, password) => apiCall({ action: 'login',    name, team, password });
 export const registerApi = (name, team, password) => apiCall({ action: 'register', name, team, password });
-export const getConfigApi   = (userId) => apiCall({ action: 'getConfig', userId });
-export const getLogsApi     = (userId) => apiCall({ action: 'getLogs',   userId });
-export const addConfigApi    = (userId, configData) => apiCall({ action: 'addConfig',    userId, ...configData });
+export const getConfigApi    = (userId)           => apiCall({ action: 'getConfig',   userId });
+export const getLogsApi      = (userId)           => apiCall({ action: 'getLogs',     userId });
+export const addConfigApi    = (userId, configData)           => apiCall({ action: 'addConfig',    userId, ...configData });
 export const updateConfigApi = (userId, configId, configData) => apiCall({ action: 'updateConfig', userId, configId, ...configData });
-export const deleteConfigApi = (userId, configId) => apiCall({ action: 'deleteConfig', userId, configId });
-export const testWebhookApi  = (userId, configId) => apiCall({ action: 'testWebhook',  userId, configId });
-export const runCheckNowApi  = (userId, configId) => apiCall({ action: 'runCheckNow',  userId, configId });
-export const checkGasVersionApi = () => apiCall({ action: 'checkVersion' });
+export const deleteConfigApi = (userId, configId)             => apiCall({ action: 'deleteConfig', userId, configId });
+export const testWebhookApi  = (userId, configId)             => apiCall({ action: 'testWebhook',  userId, configId });
+export const runCheckNowApi  = (userId, configId)             => apiCall({ action: 'runCheckNow',  userId, configId });
+export const forceRescanApi  = (userId, configId)             => apiCall({ action: 'forceRescan',  userId, configId }); // ★ v5.5 신규
+export const checkGasVersionApi = ()              => apiCall({ action: 'checkVersion' });
+export { GAS_REQUIRED_VERSION };
