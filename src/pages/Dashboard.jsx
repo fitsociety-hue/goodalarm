@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, runCheckNowApi } from '../services/api';
 import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2, Calendar, Zap, Wifi } from 'lucide-react';
 
+
 export default function Dashboard() {
   const [user, setUser]       = useState(null);
   const [configs, setConfigs] = useState([]);
@@ -209,13 +210,11 @@ export default function Dashboard() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                             <Bell size={13} />
-                            <span>알람 범위: {conf.weekdaysOnly ? '평일 전용 (주야/휴일 무관)' : '상시 (주야/휴일 무관)'}</span>
+                            <span>알람 범위: {conf.weekdaysOnly ? '평일 전용' : '상시 (주야/휴일 무관)'}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Zap size={13} color={conf.formTriggerId ? '#10B981' : '#F59E0B'} />
-                            <span style={{ color: conf.formTriggerId ? '#065F46' : '#92400E', fontWeight: 600 }}>
-                              {conf.formTriggerId ? '⚡ 즉시 알람 활성화' : '⚠️ 즉시 알람 미설정 (추가 후 자동 설치됨)'}
-                            </span>
+                            <Zap size={13} color='#10B981' />
+                            <span style={{ color: '#065F46', fontWeight: 600 }}>⚡ 자동 알람 활성화됨</span>
                           </div>
                         </div>
 
