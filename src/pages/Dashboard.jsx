@@ -302,14 +302,14 @@ export default function Dashboard() {
 
         {/* ── 최근 알람 기록 ── */}
         <section className="glass-panel" style={{ display: 'flex', flexDirection: 'column', maxHeight: '680px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
               <Activity color="var(--primary)" />
-              <h2 style={{ margin: 0 }}>최근 알람 기록</h2>
+              <h2 style={{ margin: 0, wordBreak: 'keep-all' }}>최근 알람 기록</h2>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
               {lastRefresh && (
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem', wordBreak: 'keep-all' }}>
                   <Clock size={12} />
                   {lastRefresh.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} 갱신
                 </span>
@@ -317,7 +317,7 @@ export default function Dashboard() {
               <button
                 onClick={() => user && loadData(user.userId)}
                 className="btn btn-secondary"
-                style={{ padding: '0.4rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem' }}
+                style={{ padding: '0.4rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}
                 title="새로고침"
               >
                 <RefreshCw size={14} /> 새로고침
