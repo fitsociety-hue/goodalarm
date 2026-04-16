@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, checkGasVersionApi, forceRescanApi,
+import { getConfigApi, deleteConfigApi, getLogsApi, testWebhookApi, checkGasVersionApi,
          getBaseUrl, setBaseUrl, GAS_REQUIRED_VERSION } from '../services/api';
 import { LogOut, RefreshCw, Bell, Settings, Activity, Plus, Edit2, Trash2,
          Calendar, Zap, Wifi, AlertTriangle, Check, Clock } from 'lucide-react';
@@ -11,7 +11,7 @@ export default function Dashboard() {
   const [logs, setLogs]       = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-  const [loadingAction, setLoadingAction] = useState({});
+  const [testLoading, setTestLoading] = useState({});
   const [gasOutdated, setGasOutdated] = useState(false);
   const [gasUrlInput, setGasUrlInput] = useState('');
   const [urlSaved, setUrlSaved]       = useState(false);
@@ -94,7 +94,7 @@ export default function Dashboard() {
 
   /* ─── 웹훅 테스트 ─── */
   const handleTestWebhook = async (conf) => {
-    setLoadingAction(prev => ({ ...prev, [`test_${conf.configId}`]: true }));
+    setTestLoading(prev => ({ ...prev, [conf.configId]: true }));
     try {
       const res = await testWebhookApi(user.userId, conf.configId);
       if (!res || (typeof res === 'object' && Object.keys(res).length === 0)) {
@@ -105,23 +105,7 @@ export default function Dashboard() {
         if (res?.success) loadData(user.userId);
       }
     } catch { showMessage('error', '서버 통신 오류'); }
-    finally { setLoadingAction(prev => ({ ...prev, [`test_${conf.configId}`]: false })); }
-  };
-
-  /* ─── 강제 스캔(미수신 재발송) ─── */
-  const handleForceRescan = async (conf) => {
-    setLoadingAction(prev => ({ ...prev, [`rescan_${conf.configId}`]: true }));
-    try {
-      const res = await forceRescanApi(user.userId, conf.configId);
-      if (!res || (typeof res === 'object' && Object.keys(res).length === 0)) {
-        setGasOutdated(true);
-        showMessage('error', '⚠️ GAS 구버전! GAS 버전 업데이트가 필요합니다.');
-      } else {
-        showMessage(res?.success ? 'success' : 'error', res?.message || '오류 발생');
-        if (res?.success) loadData(user.userId);
-      }
-    } catch { showMessage('error', '서버 통신 오류'); }
-    finally { setLoadingAction(prev => ({ ...prev, [`rescan_${conf.configId}`]: false })); }
+    finally { setTestLoading(prev => ({ ...prev, [conf.configId]: false })); }
   };
 
   const requestDeleteConfig = (conf) => { setTargetToDelete(conf); setIsDeleteModalOpen(true); };
@@ -296,31 +280,18 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      {/* ★ 웹훅 테스트 / 강제스캔 버튼 */}
-                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-                        <button
-                          id={`test-webhook-${conf.configId}`}
-                          onClick={() => handleTestWebhook(conf)}
-                          disabled={!!loadingAction[`test_${conf.configId}`]}
-                          className="btn btn-secondary"
-                          style={{ flex: 1, fontSize: '0.85rem', padding: '0.55rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                        >
-                          {loadingAction[`test_${conf.configId}`]
-                            ? <><RefreshCw size={14} className="spin-icon" /> 발송 중</>
-                            : <><Wifi size={14} /> 연결 테스트</>}
-                        </button>
-                        <button
-                          onClick={() => handleForceRescan(conf)}
-                          disabled={!!loadingAction[`rescan_${conf.configId}`]}
-                          className="btn"
-                          style={{ flex: 1, background: '#D97706', fontSize: '0.85rem', padding: '0.55rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                          title="최근 데이터 알람을 받지 못한 경우 클릭하세요"
-                        >
-                          {loadingAction[`rescan_${conf.configId}`]
-                            ? <><RefreshCw size={14} className="spin-icon" /> 스캔 예약 중</>
-                            : <><RefreshCw size={14} /> 최신 누락 1건 재발송</>}
-                        </button>
-                      </div>
+                      {/* ★ 웹훅 테스트 버튼만 유지 */}
+                      <button
+                        id={`test-webhook-${conf.configId}`}
+                        onClick={() => handleTestWebhook(conf)}
+                        disabled={!!testLoading[conf.configId]}
+                        className="btn btn-secondary"
+                        style={{ width: '100%', fontSize: '0.85rem', padding: '0.55rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', marginTop: '0.8rem' }}
+                      >
+                        {testLoading[conf.configId]
+                          ? <><RefreshCw size={14} className="spin-icon" /> 발송 중...</>
+                          : <><Wifi size={14} /> 웹훅 연결 테스트</>}
+                      </button>
                     </li>
                   ))}
                 </ul>

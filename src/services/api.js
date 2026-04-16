@@ -40,5 +40,4 @@ export const addConfigApi    = (userId, configData)             => apiCall({ act
 export const updateConfigApi = (userId, configId, configData)   => apiCall({ action: 'updateConfig', userId, configId, ...configData });
 export const deleteConfigApi = (userId, configId)               => apiCall({ action: 'deleteConfig', userId, configId });
 export const testWebhookApi  = (userId, configId)               => apiCall({ action: 'testWebhook',  userId, configId });
-export const forceRescanApi  = (userId, configId)               => apiCall({ action: 'forceRescan',  userId, configId });
 export const checkGasVersionApi = ()                            => apiCall({ action: 'checkVersion' });
