@@ -322,8 +322,9 @@ function onFormSubmitHandler(e) {
 
     const cfgData  = cfgSheet.getDataRange().getValues();
     const TZ       = 'Asia/Seoul';
-    const todayStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
-    const day      = new Date(new Date().toLocaleString('en-US', { timeZone: TZ })).getDay();
+    const nowKstStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss');
+    const todayStr  = nowKstStr.substring(0, 10);
+    const day       = new Date(nowKstStr.replace(/-/g, '/')).getDay(); // Safe parsing
 
     for (let i = 1; i < cfgData.length; i++) {
       const configName  = cfgData[i][2];
@@ -341,13 +342,25 @@ function onFormSubmitHandler(e) {
 
       // 스프레드시트 및 시트 매칭
       try {
-        if (SpreadsheetApp.openByUrl(sheetUrl).getId() !== ssId) { Logger.log(`  [${configName}] ssId 불일치`); continue; }
+        if (SpreadsheetApp.openByUrl(sheetUrl).getId() !== ssId) { 
+          Logger.log(`  [${configName}] ssId 불일치`); 
+          appendLog(userId, `[${configName}] ⚠️ 폼 제출 감지! 하지만 현재 등록된 스프레드시트 URL 주소가 폼 제출이 일어나고 있는 시트와 다릅니다. 목록을 확인해주세요.`);
+          continue; 
+        }
         const gidMatches = [...sheetUrl.matchAll(/[?&#]gid=([0-9]+)/g)];
         if (gidMatches.length > 0) {
           const cfgGid = parseInt(gidMatches[gidMatches.length - 1][1], 10);
-          if (srcSheetId !== cfgGid) { Logger.log(`  [${configName}] GID 불일치`); continue; }
+          if (srcSheetId !== cfgGid) { 
+            Logger.log(`  [${configName}] GID 불일치`); 
+            appendLog(userId, `[${configName}] ⚠️ 폼 데이터 감지됨. 하지만 등록된 시트 탭(GID)과 실제 폼이 기록된 시트 탭이 다릅니다. 발송이 무시됩니다.`);
+            continue; 
+          }
         }
-      } catch (ex) { Logger.log(`  [${configName}] 매칭오류: ${ex.message}`); continue; }
+      } catch (ex) { 
+        Logger.log(`  [${configName}] 매칭오류: ${ex.message}`); 
+        appendLog(userId, `[${configName}] ⚠️ 시트 매칭 오류: ${ex.message}`);
+        continue; 
+      }
 
       // 데이터 읽기 및 발송
       const lastCol = srcSheet.getLastColumn();
@@ -379,9 +392,10 @@ function checkAndSendAlarms() {
 
   const data     = sheet.getDataRange().getValues();
   const TZ       = 'Asia/Seoul';
-  const todayStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
-  const nowKST   = new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
-  const day = nowKST.getDay(), hour = nowKST.getHours();
+  const nowKstStr = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss');
+  const todayStr  = nowKstStr.substring(0, 10);
+  const safeDate  = new Date(nowKstStr.replace(/-/g, '/'));
+  const day = safeDate.getDay(), hour = safeDate.getHours();
 
   // 폼 트리거 자동 검증·재설치
   try {
@@ -424,7 +438,6 @@ function checkAndSendAlarms() {
       }
 
       if (totalRows <= lastChecked) {
-        Logger.log(`[polling] [${configName}] 새 행 없음 (총 ${totalRows}행, 마지막 ${lastChecked}행)`);
         continue;
       }
 
