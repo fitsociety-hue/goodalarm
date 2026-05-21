@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap');
+@import url('https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/Paperlogy.css');
 
 :root {
   --primary: #4F46E5;
@@ -23,7 +23,7 @@
 }
 
 body {
-  font-family: 'Pretendard', sans-serif;
+  font-family: 'Paperlogy', sans-serif;
   background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
   color: var(--text-main);
   min-height: 100vh;
